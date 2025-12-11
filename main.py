@@ -278,7 +278,59 @@ async def show_help(message: types.Message):
     await message.answer(help_text)
 
 # ---------- بقیه توابع ----------
+# در main_aiogram.py به کیبورد اصلی اضافه کنید:
+def get_main_keyboard() -> ReplyKeyboardMarkup:
+    builder = ReplyKeyboardBuilder()
+    
+    builder.button(text="🏆 لیگ‌های فعال")
+    builder.button(text="🔄 بررسی عضویت")
+    builder.button(text="📊 وضعیت من")
+    builder.button(text="👑 تالار افتخارات")  # اضافه شده
+    
+    builder.adjust(2, 2)
+    
+    return builder.as_markup(
+        resize_keyboard=True,
+        one_time_keyboard=False
+    )
 
+# و هندلر آن:
+@dp.message(F.text == "👑 تالار افتخارات")
+async def show_hall_of_fame_to_user(message: types.Message):
+    """نمایش تالار افتخارات برای کاربران عادی"""
+    from database import Database
+    user_db = Database()
+    
+    champions = user_db.get_all_champions()
+    
+    if not champions:
+        text = (
+            "🏆 *تالار افتخارات*\n\n"
+            "𝐏𝐄𝐑𝐒𝐈𝐀𝐍 𝐅𝐎𝐑𝐌𝐀𝐓𝐈𝐎𝐍🏆\n\n"
+            "هنوز هیچ قهرمانی ثبت نشده است.\n"
+            "به زودی قهرمانان لیگ‌ها مشخص می‌شوند."
+        )
+    else:
+        header = "🏆 *قهرمان های تورنومنت ولی های های*\n𝐏𝐄𝐑𝐒𝐈𝐀𝐍 𝐅𝐎𝐑𝐌𝐀𝐓𝐈𝐎𝐍🏆\n\n"
+        
+        champions_text = ""
+        for league_name, champ_username, champ_display, set_date in champions:
+            if champ_display:
+                display = f"{champ_display}"
+            else:
+                display = f"{champ_username}"
+            
+            if champ_username and not champ_username.startswith('@'):
+                username_display = f"@{champ_username}"
+            else:
+                username_display = champ_username
+            
+            champions_text += f"{league_name}: {username_display}({display})🏆\n"
+        
+        text = header + champions_text
+    
+    await message.answer(text, parse_mode='Markdown')
+    user_db.close()
 # انتخاب لیگ
 @dp.callback_query(F.data.startswith("league_"))
 async def select_league(callback: types.CallbackQuery, state: FSMContext):
