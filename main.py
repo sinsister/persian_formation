@@ -82,28 +82,23 @@ async def show_hall_of_fame_to_user(message_or_callback):
     
     if not champions:
         text = (
-            "🏆 *تالار افتخارات*\n\n"
-            "𝐏𝐄𝐑𝐒𝐈𝐀𝐍 𝐅𝐎𝐑𝐌𝐀𝐓𝐈𝐎𝐍🏆\n\n"
+            "🏆 تالار افتخارات\n\n"
+            "PERSIAN FORMATION🏆\n\n"
             "هنوز هیچ قهرمانی ثبت نشده است.\n"
             "به زودی قهرمانان لیگ‌ها مشخص می‌شوند."
         )
     else:
-        header = "🏆 *قهرمان های تورنومنت ولیگ های*\n𝐏𝐄𝐑𝐒𝐈𝐀𝐍 𝐅𝐎𝐑𝐌𝐀𝐓𝐈𝐎𝐍🏆\n\n"
+        # ایجاد متن ساده بدون Markdown
+        header = " قهرمان های تورنومنت ولیگ های\nPERSIAN FORMATION🏆\n\n"
         
         champions_text = ""
-        for league_name, champ_username, champ_display, set_date in champions:
+        for league_name, champ_game_id, champ_display, set_date in champions:
             if champ_display:
                 display = f"{champ_display}"
             else:
-                display = f"{champ_username}"
+                display = f"{champ_game_id}"
             
-            # اگر champ_username با @ شروع نشده، اضافه کن
-            if champ_username and not champ_username.startswith('@'):
-                username_display = f"{champ_username}"
-            else:
-                username_display = champ_username
-            
-            champions_text += f"{league_name}: {username_display}({display})🏆\n"
+            champions_text += f"{league_name}: {champ_game_id}({display})🏆\n"
         
         text = header + champions_text
     
@@ -114,17 +109,14 @@ async def show_hall_of_fame_to_user(message_or_callback):
     
     if isinstance(message_or_callback, types.CallbackQuery):
         await message_or_callback.message.answer(
-            text, 
-            parse_mode='Markdown',
+            text,  # بدون parse_mode
             reply_markup=builder.as_markup()
         )
     else:
         await message_or_callback.answer(
-            text, 
-            parse_mode='Markdown',
+            text,  # بدون parse_mode
             reply_markup=builder.as_markup()
         )
-
 # ---------- هندلر بررسی عضویت ----------
 async def handle_membership_check(message: types.Message):
     """بررسی عضویت و نمایش نتیجه"""

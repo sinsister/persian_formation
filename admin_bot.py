@@ -71,15 +71,15 @@ async def show_hall_of_fame(message_or_callback, include_persistent_keyboard=Tru
     
     if not champions:
         text = (
-            "🏆 *تالار افتخارات*\n\n"
-            "𝐏𝐄𝐑𝐒𝐈𝐀𝐍 𝐅𝐎𝐑𝐌𝐀𝐓𝐈𝐎𝐍🏆\n\n"
+            "🏆 تالار افتخارات\n\n"
+            "PERSIAN FORMATION🏆\n\n"
             "هنوز هیچ قهرمانی ثبت نشده است.\n"
             "برای ثبت قهرمان، ابتدا یک لیگ را غیرفعال کنید\n"
             "سپس از بخش مدیریت لیگ، قهرمان آن را تعیین کنید."
         )
     else:
-        # ایجاد متن تالار افتخارات
-        header = "🏆 *قهرمان های تورنومنت ولی های های*\n𝐏𝐄𝐑𝐒𝐈𝐀𝐍 𝐅𝐎𝐑𝐌𝐀𝐓𝐈𝐎𝐍🏆\n\n"
+        # ایجاد متن تالار افتخارات - بدون Markdown مشکل‌ساز
+        header = " قهرمان های تورنومنت ولیگ های\nPERSIAN FORMATION🏆\n\n"
         
         champions_text = ""
         for league_name, champ_game_id, champ_display, set_date in champions:
@@ -88,7 +88,7 @@ async def show_hall_of_fame(message_or_callback, include_persistent_keyboard=Tru
             else:
                 display = f"{champ_game_id}"
             
-            # فقط آیدی بازی نمایش داده می‌شود
+            # اضافه کردن کاراکتر ایمن
             champions_text += f"{league_name}: {champ_game_id}({display})🏆\n"
         
         text = header + champions_text
@@ -111,17 +111,14 @@ async def show_hall_of_fame(message_or_callback, include_persistent_keyboard=Tru
     
     if isinstance(message_or_callback, types.CallbackQuery):
         await message_or_callback.message.edit_text(
-            text, 
-            parse_mode='Markdown',
+            text,  # ❌ حذف parse_mode='Markdown'
             reply_markup=reply_markup
         )
     else:
         await message_or_callback.answer(
-            text, 
-            parse_mode='Markdown',
+            text,  # ❌ حذف parse_mode='Markdown'
             reply_markup=reply_markup
         )
-
 # ---------- هندلرهای اصلی با اینلاین کیبورد همیشگی ----------
 
 # دستور /start با اینلاین کیبورد همیشگی
