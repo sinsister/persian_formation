@@ -99,7 +99,7 @@ async def show_hall_of_fame_to_user(message_or_callback):
             
             # اگر champ_username با @ شروع نشده، اضافه کن
             if champ_username and not champ_username.startswith('@'):
-                username_display = f"@{champ_username}"
+                username_display = f"{champ_username}"
             else:
                 username_display = champ_username
             
