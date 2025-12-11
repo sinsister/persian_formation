@@ -88,7 +88,7 @@ async def show_hall_of_fame_to_user(message_or_callback):
             "به زودی قهرمانان لیگ‌ها مشخص می‌شوند."
         )
     else:
-        header = "*قهرمان های تورنومنت ولیگ های*\n𝐏𝐄𝐑𝐒𝐈𝐀𝐍 𝐅𝐎𝐑𝐌𝐀𝐓𝐈𝐎𝐍🏆\n\n"
+        header = "🏆 *قهرمان های تورنومنت ولیگ های*\n𝐏𝐄𝐑𝐒𝐈𝐀𝐍 𝐅𝐎𝐑𝐌𝐀𝐓𝐈𝐎𝐍🏆\n\n"
         
         champions_text = ""
         for league_name, champ_username, champ_display, set_date in champions:
