@@ -22,7 +22,7 @@ class AdminStates(StatesGroup):
     waiting_password = State()
     waiting_league_name = State()
     waiting_league_capacity = State()
-    waiting_champion_game_id = State()  # تغییر: دریافت آیدی بازی به جای نام کاربری
+    waiting_champion_game_id = State()  # فقط آیدی بازی
     waiting_champion_display_name = State()
 
 # ---------- متغیرهای سراسری ----------
@@ -86,34 +86,28 @@ async def show_hall_of_fame(message_or_callback, include_persistent_keyboard=Tru
             if champ_display:
                 display = f"{champ_display}"
             else:
-                display = f"آیدی: {champ_game_id}"
+                display = f"{champ_game_id}"
             
+            # فقط آیدی بازی نمایش داده می‌شود
             champions_text += f"{league_name}: {champ_game_id}({display})🏆\n"
         
         text = header + champions_text
     
     # ترکیب کیبورد تالار افتخارات با کیبورد همیشگی
-    hall_builder = InlineKeyboardBuilder()
-    hall_builder.button(text="🔄 به‌روزرسانی", callback_data="refresh_hall_of_fame")
-    hall_builder.button(text="➕ ثبت قهرمان جدید", callback_data="add_new_champion")
-    hall_builder.adjust(1)
-    
-    # اگر بخواهیم کیبورد همیشگی هم نمایش داده شود
     if include_persistent_keyboard:
-        persistent_builder = InlineKeyboardBuilder()
-        
-        # اضافه کردن دکمه‌های تالار افتخارات
-        persistent_builder.button(text="🔄 به‌روزرسانی", callback_data="refresh_hall_of_fame")
-        persistent_builder.button(text="➕ ثبت قهرمان جدید", callback_data="add_new_champion")
-        
-        # اضافه کردن دکمه‌های همیشگی
-        persistent_builder.button(text="📋 لیست لیگ‌ها", callback_data="list_leagues_persistent")
-        persistent_builder.button(text="🔙 بازگشت به منو", callback_data="back_to_admin_menu_persistent")
-        
-        persistent_builder.adjust(2, 2)
-        reply_markup = persistent_builder.as_markup()
+        builder = InlineKeyboardBuilder()
+        builder.button(text="🔄 به‌روزرسانی", callback_data="refresh_hall_of_fame")
+        builder.button(text="➕ ثبت قهرمان جدید", callback_data="add_new_champion")
+        builder.button(text="📋 لیست لیگ‌ها", callback_data="list_leagues_persistent")
+        builder.button(text="🔙 بازگشت", callback_data="back_to_admin_menu_persistent")
+        builder.adjust(2, 2)
+        reply_markup = builder.as_markup()
     else:
-        reply_markup = hall_builder.as_markup()
+        builder = InlineKeyboardBuilder()
+        builder.button(text="🔄 به‌روزرسانی", callback_data="refresh_hall_of_fame")
+        builder.button(text="➕ ثبت قهرمان جدید", callback_data="add_new_champion")
+        builder.adjust(1)
+        reply_markup = builder.as_markup()
     
     if isinstance(message_or_callback, types.CallbackQuery):
         await message_or_callback.message.edit_text(
@@ -355,7 +349,7 @@ async def manage_league(callback: types.CallbackQuery):
         reply_markup=builder.as_markup()
     )
 
-# تعیین قهرمان برای لیگ - دریافت آیدی بازی
+# تعیین قهرمان برای لیگ - دریافت آیدی بازی (هر چیزی)
 @dp.callback_query(F.data.startswith("set_champion_"))
 async def set_champion_start(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
@@ -372,7 +366,7 @@ async def set_champion_start(callback: types.CallbackQuery, state: FSMContext):
     
     await callback.message.edit_text(
         f"👑 تعیین قهرمان برای لیگ: {league[1]}\n\n"
-        f"لطفاً **آیدی بازی** قهرمان را وارد کنید (عدد):"
+        f"لطفاً **آیدی بازی** قهرمان را وارد کنید (هر چیزی می‌تواند باشد):"
     )
     
     await state.set_state(AdminStates.waiting_champion_game_id)
@@ -408,20 +402,15 @@ async def edit_champion_start(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         f"✏️ ویرایش قهرمان لیگ: {league[1]}\n\n"
         f"قهرمان فعلی: {champ_game_id} ({champ_display})\n\n"
-        f"لطفاً **آیدی بازی جدید** را وارد کنید (عدد):"
+        f"لطفاً **آیدی بازی جدید** را وارد کنید (هر چیزی می‌تواند باشد):"
     )
     
     await state.set_state(AdminStates.waiting_champion_game_id)
 
-# دریافت آیدی بازی قهرمان
+# دریافت آیدی بازی قهرمان (هر چیزی می‌تواند باشد)
 @dp.message(AdminStates.waiting_champion_game_id)
 async def get_champion_game_id(message: types.Message, state: FSMContext):
     game_id = message.text.strip()
-    
-    # بررسی اینکه آیدی بازی عدد باشد
-    if not game_id.isdigit():
-        await message.answer("❌ آیدی بازی باید عدد باشد. لطفاً دوباره وارد کنید:")
-        return
     
     if not game_id:
         await message.answer("❌ آیدی بازی نمی‌تواند خالی باشد. لطفاً دوباره وارد کنید:")
@@ -843,8 +832,8 @@ async def cancel_command(message: types.Message, state: FSMContext):
 async def main():
     print("🤖 ربات ادمین با aiogram در حال راه‌اندازی...")
     print("✅ اینلاین کیبورد همیشگی فعال شد")
-    print("✅ تالار افتخارات با آیدی بازی اضافه شد")
-    print("✅ قابلیت تعیین قهرمان با آیدی بازی اضافه شد")
+    print("✅ تالار افتخارات با آیدی بازی (هر چیزی) اضافه شد")
+    print("✅ فقط آیدی بازی گرفته می‌شود (بدون @username)")
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
