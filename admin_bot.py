@@ -184,6 +184,13 @@ async def list_leagues_handler(message_or_callback):
         
         # بررسی آیا قهرمان دارد
         champion = db.get_champion(league_id)
+        has_champion = False
+try:
+    champion = db.get_champion(league_id)
+    has_champion = champion is not None
+except Exception as e:
+    logger.error(f"خطا در بررسی قهرمان لیگ {league_id}: {e}")
+    has_champion = False
         has_champion = "👑" if champion else ""
         
         text = f"{status}{has_champion} {name} ({user_count}/{capacity})"
