@@ -194,11 +194,14 @@ async def start_command(message: types.Message, state: FSMContext):
             reply_markup=get_main_keyboard()
         )
         
-        # اگر کاربر قبلاً ثبت‌نام کرده، پیام اضافه
-        if db.is_user_registered(user_id):
+        # اگر کاربر قبلاً در لیگی ثبت‌نام کرده، پیام اضافه
+        user_leagues = db.get_user_leagues(user_id)
+        if user_leagues:
+            leagues_text = "\n".join([f"🏆 {league_name}" for league_id, league_name, capacity, username in user_leagues])
             await message.answer(
-                "📝 شما قبلاً ثبت‌نام کرده‌اید. "
-                "برای مشاهده وضعیت از دکمه '📊 وضعیت من' استفاده کنید."
+                f"📝 شما قبلاً در لیگ‌های زیر ثبت‌نام کرده‌اید:\n\n"
+                f"{leagues_text}\n\n"
+                f"برای مشاهده وضعیت از دکمه '📊 وضعیت من' استفاده کنید."
             )
     else:
         # کاربر عضو نیست
@@ -234,19 +237,15 @@ async def show_active_leagues(message: types.Message):
         )
         return
     
-    # بررسی ثبت‌نام قبلی
-    if db.is_user_registered(user_id):
-        await message.answer(
-            "✅ شما قبلاً ثبت‌نام کرده‌اید!\n"
-            "هر کاربر فقط می‌تواند یک بار ثبت‌نام کند."
-        )
-        return
-    
     # نمایش لیگ‌های فعال
     leagues = db.get_active_leagues()
     if not leagues:
         await message.answer("⚠️ در حال حاضر هیچ لیگ فعالی وجود ندارد.")
         return
+    
+    # دریافت لیگ‌هایی که کاربر در آن‌ها ثبت‌نام کرده
+    user_leagues = db.get_user_leagues(user_id)
+    user_league_ids = [league[0] for league in user_leagues] if user_leagues else []
     
     # ایجاد دکمه‌های اینلاین
     builder = InlineKeyboardBuilder()
@@ -255,18 +254,24 @@ async def show_active_leagues(message: types.Message):
         league_data = db.get_league(league_id)
         capacity = league_data[2] if league_data else 0
         
-        if user_count >= capacity:
+        if league_id in user_league_ids:
+            # کاربر در این لیگ ثبت‌نام کرده
+            text = f"✅ {league_name} (شما ثبت‌نام کرده‌اید)"
+            builder.button(text=text, callback_data=f"already_registered_{league_id}")
+        elif user_count >= capacity:
             text = f"🚫 {league_name} (تکمیل)"
+            builder.button(text=text, callback_data=f"full_league_{league_id}")
         else:
             text = f"🎮 {league_name} ({user_count}/{capacity})"
-        
-        builder.button(text=text, callback_data=f"league_{league_id}")
+            builder.button(text=text, callback_data=f"league_{league_id}")
     
     builder.adjust(1)
     
     await message.answer(
         "🏆 لیگ‌های فعال:\n\n"
-        "لطفاً یک لیگ را انتخاب کنید:",
+        "لطفاً یک لیگ را انتخاب کنید:\n"
+        "✅ = قبلاً ثبت‌نام کرده‌اید\n"
+        "🚫 = لیگ تکمیل شده",
         reply_markup=builder.as_markup()
     )
 
@@ -284,25 +289,17 @@ async def show_my_status(message: types.Message):
         return
     
     # بررسی آیا کاربر ثبت‌نام کرده
-    if not db.is_user_registered(user_id):
+    user_leagues = db.get_user_leagues(user_id)
+    
+    if not user_leagues:
         await message.answer(
-            "📝 شما هنوز ثبت‌نام نکرده‌اید.\n"
+            "📝 شما هنوز در هیچ لیگی ثبت‌نام نکرده‌اید.\n"
             "برای ثبت‌نام از دکمه '🏆 لیگ‌های فعال' استفاده کنید."
         )
         return
     
-    # پیدا کردن اطلاعات کاربر
-    cursor = db.conn.cursor()
-    cursor.execute(
-        "SELECT u.username, l.name, l.capacity, u.registered_at, l.id FROM users u "
-        "JOIN leagues l ON u.league_id = l.id WHERE u.user_id = ?",
-        (user_id,)
-    )
-    user_data = cursor.fetchone()
-    
-    if user_data:
-        username, league_name, capacity, registered_at, league_id = user_data
-        # پیدا کردن تعداد کاربران این لیگ
+    # نمایش اطلاعات هر لیگ
+    for league_id, league_name, capacity, username in user_leagues:
         user_count = db.get_league_user_count(league_id)
         
         # بررسی آیا لیگ قهرمان دارد
@@ -310,22 +307,19 @@ async def show_my_status(message: types.Message):
         try:
             champion = db.get_champion(league_id)
             if champion:
-                champ_username, champ_display, set_at, champ_league_name = champion
-                champion_info = f"\n👑 قهرمان لیگ: {champ_username} ({champ_display})"
+                champ_game_id, champ_display, set_at, champ_league_name = champion
+                champion_info = f"\n👑 قهرمان لیگ: {champ_game_id} ({champ_display})"
         except:
             pass
         
         await message.answer(
-            f"📊 وضعیت شما:\n\n"
-            f"👤 نام کاربری: {username}\n"
+            f"📊 وضعیت شما در لیگ:\n\n"
             f"🏆 لیگ: {league_name}\n"
+            f"👤 نام کاربری: {username}\n"
             f"👥 وضعیت لیگ: {user_count}/{capacity}\n"
-            f"📅 تاریخ ثبت‌نام: {registered_at}\n"
             f"{champion_info}\n\n"
             f"✅ ثبت‌نام شما تأیید شده است."
         )
-    else:
-        await message.answer("⚠️ اطلاعات شما یافت نشد.")
 
 # ---------- هندلر برای دکمه "👑 تالار افتخارات" ----------
 @dp.message(F.text == "👑 تالار افتخارات")
@@ -351,9 +345,10 @@ async def show_help(message: types.Message):
         "1. ابتدا باید در کانال عضو شوید\n"
         "2. برای تأیید عضویت از دکمه '🔄 بررسی عضویت' استفاده کنید\n"
         "3. برای ثبت‌نام در لیگ از '🏆 لیگ‌های فعال' استفاده کنید\n"
-        "4. هر کاربر فقط می‌تواند یک بار ثبت‌نام کند\n"
-        "5. برای مشاهده وضعیت خود از '📊 وضعیت من' استفاده کنید\n"
-        "6. برای مشاهده قهرمانان از '👑 تالار افتخارات' استفاده کنید\n\n"
+        "4. هر کاربر می‌تواند در لیگ‌های مختلف ثبت‌نام کند\n"
+        "5. اما نمی‌تواند در یک لیگ دوبار ثبت‌نام کند\n"
+        "6. برای مشاهده وضعیت خود از '📊 وضعیت من' استفاده کنید\n"
+        "7. برای مشاهده قهرمانان از '👑 تالار افتخارات' استفاده کنید\n\n"
         "⚠️ توجه: پس از تکمیل ظرفیت یک لیگ، امکان ثبت‌نام وجود ندارد.\n"
         "لیگ‌های تکمیل شده بعداً قهرمان مشخص می‌کنند."
     )
@@ -371,6 +366,13 @@ async def select_league(callback: types.CallbackQuery, state: FSMContext):
         await callback.message.edit_text("⚠️ این لیگ دیگر فعال نیست.")
         return
     
+    user_id = callback.from_user.id
+    
+    # بررسی آیا کاربر قبلاً در این لیگ ثبت‌نام کرده
+    if db.is_user_in_league(user_id, league_id):
+        await callback.message.edit_text("🚫 شما قبلاً در این لیگ ثبت‌نام کرده‌اید!")
+        return
+    
     user_count = db.get_league_user_count(league_id)
     if user_count >= league[2]:
         await callback.message.edit_text("🚫 این لیگ تکمیل شده است.")
@@ -383,11 +385,25 @@ async def select_league(callback: types.CallbackQuery, state: FSMContext):
     )
     await state.set_state(UserStates.waiting_username)
 
+# ---------- هندلر برای لیگ‌های تکمیل شده ----------
+@dp.callback_query(F.data.startswith("full_league_"))
+async def full_league_callback(callback: types.CallbackQuery):
+    await callback.answer("🚫 این لیگ تکمیل شده است!", show_alert=True)
+
+# ---------- هندلر برای لیگ‌هایی که کاربر قبلاً ثبت‌نام کرده ----------
+@dp.callback_query(F.data.startswith("already_registered_"))
+async def already_registered_callback(callback: types.CallbackQuery):
+    await callback.answer("✅ شما قبلاً در این لیگ ثبت‌نام کرده‌اید!", show_alert=True)
+
 # ---------- دریافت نام کاربری ----------
 @dp.message(UserStates.waiting_username)
 async def get_username(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     username = message.text.strip()
+    
+    if not username:
+        await message.answer("❌ نام کاربری نمی‌تواند خالی باشد. لطفاً دوباره وارد کنید:")
+        return
     
     data = await state.get_data()
     league_id = data.get('selected_league')
@@ -397,10 +413,26 @@ async def get_username(message: types.Message, state: FSMContext):
         await state.clear()
         return
     
-    if db.register_user(user_id, username, league_id):
+    # بررسی نهایی قبل از ثبت‌نام
+    if db.is_user_in_league(user_id, league_id):
+        await message.answer(
+            "⚠️ شما قبلاً در این لیگ ثبت‌نام کرده‌اید!",
+            reply_markup=get_main_keyboard()
+        )
+        await state.clear()
+        return
+    
+    # ثبت‌نام کاربر
+    success = db.register_user(user_id, username, league_id)
+    
+    if success:
+        league = db.get_league(league_id)
+        league_name = league[1] if league else "لیگ"
+        
         await message.answer(
             "✅ ثبت‌نام شما با موفقیت انجام شد!\n\n"
-            f"نام کاربری: {username}\n"
+            f"🏆 لیگ: {league_name}\n"
+            f"👤 نام کاربری: {username}\n\n"
             "منتظر اطلاع‌رسانی‌های بعدی باشید.",
             reply_markup=get_main_keyboard()
         )
@@ -414,7 +446,7 @@ async def get_username(message: types.Message, state: FSMContext):
             )
     else:
         await message.answer(
-            "⚠️ شما قبلاً ثبت‌نام کرده‌اید!",
+            "❌ خطا در ثبت‌نام. ممکن است قبلاً در این لیگ ثبت‌نام کرده باشید.",
             reply_markup=get_main_keyboard()
         )
     
@@ -431,6 +463,7 @@ async def main():
     print("🤖 ربات اصلی با aiogram در حال راه‌اندازی...")
     print(f"📢 کانال مورد بررسی: {CHANNEL_USERNAME}")
     print("✅ تالار افتخارات اضافه شد")
+    print("✅ کاربران می‌توانند در لیگ‌های مختلف ثبت‌نام کنند")
     print("⚠️ نکته: مطمئن شوید ربات در کانال ادمین است!")
     await dp.start_polling(bot)
 

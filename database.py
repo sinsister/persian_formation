@@ -146,6 +146,16 @@ class Database:
             logger.error(f"خطا در دریافت لیگ‌های بدون قهرمان: {e}")
             return []
     
+    def get_active_leagues(self):
+        """دریافت لیگ‌های فعال"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT id, name FROM leagues WHERE is_active = 1 ORDER BY id DESC")
+            return cursor.fetchall()
+        except Exception as e:
+            logger.error(f"خطا در دریافت لیگ‌های فعال: {e}")
+            return []
+    
     # ---------- توابع کاربران ----------
     
     def add_user_to_league(self, user_id: int, username: str, league_id: int) -> bool:
@@ -160,6 +170,33 @@ class Database:
             return True
         except Exception as e:
             logger.error(f"خطا در افزودن کاربر به لیگ: {e}")
+            return False
+    
+    def register_user(self, user_id: int, username: str, league_id: int) -> bool:
+        """ثبت نام کاربر در یک لیگ خاص"""
+        try:
+            cursor = self.conn.cursor()
+            
+            # بررسی آیا کاربر قبلاً در این لیگ ثبت نام کرده
+            cursor.execute(
+                "SELECT id FROM users WHERE user_id = ? AND league_id = ?",
+                (user_id, league_id)
+            )
+            existing = cursor.fetchone()
+            
+            if existing:
+                return False  # کاربر قبلاً در این لیگ ثبت نام کرده
+            
+            # ثبت نام کاربر
+            cursor.execute(
+                "INSERT INTO users (user_id, username, league_id) VALUES (?, ?, ?)",
+                (user_id, username, league_id)
+            )
+            self.conn.commit()
+            return True
+            
+        except Exception as e:
+            logger.error(f"خطا در ثبت نام کاربر: {e}")
             return False
     
     def get_league_users(self, league_id: int):
@@ -228,6 +265,47 @@ class Database:
         except Exception as e:
             logger.error(f"خطا در بروزرسانی نام کاربر: {e}")
             return False
+    
+    def is_user_registered(self, user_id: int) -> bool:
+        """بررسی آیا کاربر به طور کلی ثبت نام کرده (در هر لیگی)"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "SELECT COUNT(*) FROM users WHERE user_id = ?",
+                (user_id,)
+            )
+            return cursor.fetchone()[0] > 0
+        except Exception as e:
+            logger.error(f"خطا در بررسی ثبت نام کاربر: {e}")
+            return False
+    
+    def is_user_in_league(self, user_id: int, league_id: int) -> bool:
+        """بررسی آیا کاربر در یک لیگ خاص ثبت نام کرده"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "SELECT COUNT(*) FROM users WHERE user_id = ? AND league_id = ?",
+                (user_id, league_id)
+            )
+            return cursor.fetchone()[0] > 0
+        except Exception as e:
+            logger.error(f"خطا در بررسی حضور کاربر در لیگ: {e}")
+            return False
+    
+    def get_user_leagues(self, user_id: int):
+        """دریافت لیگ‌هایی که کاربر در آن‌ها ثبت نام کرده"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                SELECT l.id, l.name, l.capacity, u.username
+                FROM users u
+                JOIN leagues l ON u.league_id = l.id
+                WHERE u.user_id = ?
+            ''', (user_id,))
+            return cursor.fetchall()
+        except Exception as e:
+            logger.error(f"خطا در دریافت لیگ‌های کاربر: {e}")
+            return []
     
     # ---------- توابع قهرمانان ----------
     

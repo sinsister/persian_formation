@@ -559,6 +559,7 @@ async def add_user_start(callback: types.CallbackQuery, state: FSMContext):
     
     await callback.message.edit_text(
         f"➕ افزودن کاربر جدید به لیگ: {league[1]}\n\n"
+        f"⚠️ توجه: کاربر می‌تواند در لیگ‌های مختلف ثبت‌نام کند.\n\n"
         f"لطفاً آیدی عددی کاربر را وارد کنید:",
         reply_markup=None
     )
@@ -574,12 +575,10 @@ async def get_user_id_for_add(message: types.Message, state: FSMContext):
         league_id = data.get('adding_user_league_id')
         league_name = data.get('adding_user_league_name')
         
-        # بررسی تکراری نبودن کاربر
-        existing_user = db.get_user_info(league_id, user_id)
-        if existing_user:
+        # بررسی آیا کاربر قبلاً در این لیگ ثبت‌نام کرده
+        if db.is_user_in_league(user_id, league_id):
             await message.answer(
-                f"⚠️ این کاربر قبلاً در لیگ ثبت‌نام کرده است!\n\n"
-                f"نام: {existing_user[1] if existing_user[1] else 'ندارد'}\n\n"
+                f"⚠️ این کاربر قبلاً در این لیگ ثبت‌نام کرده است!\n\n"
                 f"لطفاً آیدی کاربر دیگری را وارد کنید:"
             )
             return
@@ -1116,7 +1115,8 @@ async def main():
     print("✅ اینلاین کیبورد همیشگی فعال شد")
     print("✅ تالار افتخارات با آیدی بازی (هر چیزی) اضافه شد")
     print("✅ قابلیت ویرایش لیست کاربران اضافه شد")
-    print("✅ قابلیت اضافه/حذف/ویرایش کاربران فعال شد")
+    print("✅ کاربران می‌توانند در لیگ‌های مختلف ثبت‌نام کنند")
+    print("✅ فقط اجازه ثبت‌نام مجدد در همان لیگ داده نمی‌شود")
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
