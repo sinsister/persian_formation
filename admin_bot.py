@@ -182,18 +182,17 @@ async def list_leagues_handler(message_or_callback):
         user_count = db.get_league_user_count(league_id)
         status = "✅" if is_active == 1 else "❌"
         
-        # بررسی آیا قهرمان دارد
-        champion = db.get_champion(league_id)
+        # بررسی آیا قهرمان دارد - با مدیریت خطا
         has_champion = False
-try:
-    champion = db.get_champion(league_id)
-    has_champion = champion is not None
-except Exception as e:
-    logger.error(f"خطا در بررسی قهرمان لیگ {league_id}: {e}")
-    has_champion = False
-        has_champion = "👑" if champion else ""
+        try:
+            champion = db.get_champion(league_id)
+            has_champion = champion is not None
+        except Exception as e:
+            logger.error(f"خطا در بررسی قهرمان لیگ {league_id}: {e}")
+            has_champion = False
         
-        text = f"{status}{has_champion} {name} ({user_count}/{capacity})"
+        champion_icon = "👑" if has_champion else ""
+        text = f"{status}{champion_icon} {name} ({user_count}/{capacity})"
         builder.button(text=text, callback_data=f"admin_league_{league_id}")
     
     builder.button(text="🏆 تالار افتخارات", callback_data="hall_of_fame")
@@ -224,11 +223,14 @@ async def manage_league(callback: types.CallbackQuery):
     status = "فعال" if is_active == 1 else "غیرفعال"
     
     # بررسی آیا قهرمان دارد
-    champion = db.get_champion(league_id)
     champion_text = ""
-    if champion:
-        champ_username, champ_display, set_at, league_name = champion
-        champion_text = f"\n👑 قهرمان: {champ_username} ({champ_display})\n📅 تاریخ: {set_at}"
+    try:
+        champion = db.get_champion(league_id)
+        if champion:
+            champ_username, champ_display, set_at, league_name = champion
+            champion_text = f"\n👑 قهرمان: {champ_username} ({champ_display})\n📅 تاریخ: {set_at}"
+    except Exception as e:
+        logger.error(f"خطا در دریافت قهرمان لیگ {league_id}: {e}")
     
     # دریافت لیست کاربران بدون @
     users = db.get_league_users(league_id)
@@ -243,8 +245,16 @@ async def manage_league(callback: types.CallbackQuery):
     builder.button(text=f"🔄 {'غیرفعال' if is_active == 1 else 'فعال'} کردن", callback_data=f"toggle_{league_id}")
     builder.button(text="👥 مشاهده کاربران", callback_data=f"view_users_{league_id}")
     
+    # بررسی وجود قهرمان برای دکمه‌ها
+    has_champion = False
+    try:
+        champion = db.get_champion(league_id)
+        has_champion = champion is not None
+    except:
+        has_champion = False
+    
     if is_active == 0:  # فقط لیگ‌های غیرفعال می‌توانند قهرمان داشته باشند
-        if champion:
+        if has_champion:
             builder.button(text="✏️ ویرایش قهرمان", callback_data=f"edit_champion_{league_id}")
             builder.button(text="🗑️ حذف قهرمان", callback_data=f"remove_champion_{league_id}")
         else:
@@ -254,7 +264,7 @@ async def manage_league(callback: types.CallbackQuery):
     builder.button(text="🔙 بازگشت به لیست", callback_data="list_leagues_callback")
     
     # تنظیم چیدمان دکمه‌ها
-    if is_active == 0 and champion:
+    if is_active == 0 and has_champion:
         builder.adjust(2, 2, 2, 1)
     elif is_active == 0:
         builder.adjust(2, 2, 1, 1)
@@ -299,10 +309,15 @@ async def edit_champion_start(callback: types.CallbackQuery, state: FSMContext):
     
     league_id = int(callback.data.split('_')[2])
     league = db.get_league(league_id)
-    champion = db.get_champion(league_id)
     
-    if not league or not champion:
-        await callback.message.edit_text("⚠️ لیگ یا قهرمان پیدا نشد!")
+    if not league:
+        await callback.message.edit_text("⚠️ لیگ پیدا نشد!")
+        return
+    
+    # دریافت قهرمان فعلی
+    champion = db.get_champion(league_id)
+    if not champion:
+        await callback.message.edit_text("⚠️ این لیگ قهرمان ندارد!")
         return
     
     champ_username, champ_display, set_at, league_name = champion
@@ -393,10 +408,14 @@ async def remove_champion(callback: types.CallbackQuery):
     
     league_id = int(callback.data.split('_')[2])
     league = db.get_league(league_id)
-    champion = db.get_champion(league_id)
     
-    if not league or not champion:
-        await callback.message.edit_text("⚠️ لیگ یا قهرمان پیدا نشد!")
+    if not league:
+        await callback.message.edit_text("⚠️ لیگ پیدا نشد!")
+        return
+    
+    champion = db.get_champion(league_id)
+    if not champion:
+        await callback.message.edit_text("⚠️ این لیگ قهرمان ندارد!")
         return
     
     champ_username, champ_display, set_at, league_name = champion
@@ -434,7 +453,44 @@ async def confirm_remove_champion(callback: types.CallbackQuery):
         await callback.message.edit_text(f"✅ قهرمان لیگ '{league[1]}' با موفقیت حذف شد.")
         # برگشت به مدیریت لیگ
         await asyncio.sleep(2)
-        await manage_league(callback)
+        
+        # بازگشت به صفحه مدیریت لیگ
+        league = db.get_league(league_id)
+        if league:
+            league_id, name, capacity, is_active, created_at = league
+            user_count = db.get_league_user_count(league_id)
+            status = "فعال" if is_active == 1 else "غیرفعال"
+            
+            users = db.get_league_users(league_id)
+            if users:
+                users_list = "\n".join([f"{i+1}. {username if username else f'آیدی: {user_id}'}" 
+                                       for i, (user_id, username) in enumerate(users)])
+            else:
+                users_list = "هیچ کاربری ثبت‌نام نکرده است."
+            
+            builder = InlineKeyboardBuilder()
+            builder.button(text=f"🔄 {'غیرفعال' if is_active == 1 else 'فعال'} کردن", callback_data=f"toggle_{league_id}")
+            builder.button(text="👥 مشاهده کاربران", callback_data=f"view_users_{league_id}")
+            
+            if is_active == 0:
+                builder.button(text="👑 تعیین قهرمان", callback_data=f"set_champion_{league_id}")
+            
+            builder.button(text="🗑️ حذف لیگ", callback_data=f"delete_league_{league_id}")
+            builder.button(text="🔙 بازگشت به لیست", callback_data="list_leagues_callback")
+            
+            if is_active == 0:
+                builder.adjust(2, 2, 1, 1)
+            else:
+                builder.adjust(2, 2, 1)
+            
+            await callback.message.edit_text(
+                f"🏆 لیگ: {name}\n"
+                f"📊 ظرفیت: {user_count}/{capacity}\n"
+                f"🔧 وضعیت: {status}\n"
+                f"📅 تاریخ ایجاد: {created_at}\n\n"
+                f"کاربران ثبت‌نام کرده ({user_count} نفر):\n{users_list}",
+                reply_markup=builder.as_markup()
+            )
     else:
         await callback.message.edit_text("❌ خطا در حذف قهرمان.")
 
@@ -487,11 +543,14 @@ async def toggle_league(callback: types.CallbackQuery):
             user_count = db.get_league_user_count(league_id)
             
             # بررسی آیا قهرمان دارد
-            champion = db.get_champion(league_id)
             champion_text = ""
-            if champion:
-                champ_username, champ_display, set_at, league_name = champion
-                champion_text = f"\n👑 قهرمان: {champ_username} ({champ_display})"
+            try:
+                champion = db.get_champion(league_id)
+                if champion:
+                    champ_username, champ_display, set_at, league_name = champion
+                    champion_text = f"\n👑 قهرمان: {champ_username} ({champ_display})"
+            except:
+                pass
             
             users = db.get_league_users(league_id)
             if users:
@@ -504,8 +563,16 @@ async def toggle_league(callback: types.CallbackQuery):
             builder.button(text=f"🔄 {'غیرفعال' if is_active == 1 else 'فعال'} کردن", callback_data=f"toggle_{league_id}")
             builder.button(text="👥 مشاهده کاربران", callback_data=f"view_users_{league_id}")
             
+            # بررسی وجود قهرمان برای دکمه‌ها
+            has_champion = False
+            try:
+                champion = db.get_champion(league_id)
+                has_champion = champion is not None
+            except:
+                has_champion = False
+            
             if is_active == 0:
-                if champion:
+                if has_champion:
                     builder.button(text="✏️ ویرایش قهرمان", callback_data=f"edit_champion_{league_id}")
                     builder.button(text="🗑️ حذف قهرمان", callback_data=f"remove_champion_{league_id}")
                 else:
@@ -514,7 +581,7 @@ async def toggle_league(callback: types.CallbackQuery):
             builder.button(text="🗑️ حذف لیگ", callback_data=f"delete_league_{league_id}")
             builder.button(text="🔙 بازگشت به لیست", callback_data="list_leagues_callback")
             
-            if is_active == 0 and champion:
+            if is_active == 0 and has_champion:
                 builder.adjust(2, 2, 2, 1)
             elif is_active == 0:
                 builder.adjust(2, 2, 1, 1)

@@ -36,9 +36,10 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
     builder.button(text="🏆 لیگ‌های فعال")
     builder.button(text="🔄 بررسی عضویت")
     builder.button(text="📊 وضعیت من")
+    builder.button(text="👑 تالار افتخارات")
     builder.button(text="ℹ️ راهنما")
     
-    builder.adjust(2, 2)
+    builder.adjust(2, 2, 1)
     
     return builder.as_markup(
         resize_keyboard=True,
@@ -72,6 +73,57 @@ async def check_membership(user_id: int) -> bool:
             logger.error("ربات در کانال ادمین نیست یا کانال وجود ندارد!")
         
         return False
+
+# ---------- تالار افتخارات برای کاربران ----------
+async def show_hall_of_fame_to_user(message_or_callback):
+    """نمایش تالار افتخارات برای کاربران عادی"""
+    
+    champions = db.get_all_champions()
+    
+    if not champions:
+        text = (
+            "🏆 *تالار افتخارات*\n\n"
+            "𝐏𝐄𝐑𝐒𝐈𝐀𝐍 𝐅𝐎𝐑𝐌𝐀𝐓𝐈𝐎𝐍🏆\n\n"
+            "هنوز هیچ قهرمانی ثبت نشده است.\n"
+            "به زودی قهرمانان لیگ‌ها مشخص می‌شوند."
+        )
+    else:
+        header = "🏆 *قهرمان های تورنومنت ولی های های*\n𝐏𝐄𝐑𝐒𝐈𝐀𝐍 𝐅𝐎𝐑𝐌𝐀𝐓𝐈𝐎𝐍🏆\n\n"
+        
+        champions_text = ""
+        for league_name, champ_username, champ_display, set_date in champions:
+            if champ_display:
+                display = f"{champ_display}"
+            else:
+                display = f"{champ_username}"
+            
+            # اگر champ_username با @ شروع نشده، اضافه کن
+            if champ_username and not champ_username.startswith('@'):
+                username_display = f"@{champ_username}"
+            else:
+                username_display = champ_username
+            
+            champions_text += f"{league_name}: {username_display}({display})🏆\n"
+        
+        text = header + champions_text
+    
+    # کیبورد برای بازگشت
+    builder = ReplyKeyboardBuilder()
+    builder.button(text="🔙 بازگشت به منو")
+    builder.adjust(1)
+    
+    if isinstance(message_or_callback, types.CallbackQuery):
+        await message_or_callback.message.answer(
+            text, 
+            parse_mode='Markdown',
+            reply_markup=builder.as_markup()
+        )
+    else:
+        await message_or_callback.answer(
+            text, 
+            parse_mode='Markdown',
+            reply_markup=builder.as_markup()
+        )
 
 # ---------- هندلر بررسی عضویت ----------
 async def handle_membership_check(message: types.Message):
@@ -112,6 +164,15 @@ async def handle_membership_check(message: types.Message):
 async def check_membership_button(message: types.Message):
     """هندلر دکمه بررسی عضویت"""
     await handle_membership_check(message)
+
+# ---------- هندلر برای دکمه "🔙 بازگشت به منو" ----------
+@dp.message(F.text == "🔙 بازگشت به منو")
+async def back_to_menu(message: types.Message):
+    """بازگشت به منوی اصلی"""
+    await message.answer(
+        "منوی اصلی:",
+        reply_markup=get_main_keyboard()
+    )
 
 # ---------- کالبک برای بررسی مجدد ----------
 @dp.callback_query(F.data == "check_again")
@@ -241,27 +302,54 @@ async def show_my_status(message: types.Message):
     # پیدا کردن اطلاعات کاربر
     cursor = db.conn.cursor()
     cursor.execute(
-        "SELECT u.username, l.name, l.capacity, u.registered_at FROM users u "
+        "SELECT u.username, l.name, l.capacity, u.registered_at, l.id FROM users u "
         "JOIN leagues l ON u.league_id = l.id WHERE u.user_id = ?",
         (user_id,)
     )
     user_data = cursor.fetchone()
     
     if user_data:
-        username, league_name, capacity, registered_at = user_data
+        username, league_name, capacity, registered_at, league_id = user_data
         # پیدا کردن تعداد کاربران این لیگ
-        user_count = db.get_league_user_count(cursor.lastrowid or 0)
+        user_count = db.get_league_user_count(league_id)
+        
+        # بررسی آیا لیگ قهرمان دارد
+        champion_info = ""
+        try:
+            champion = db.get_champion(league_id)
+            if champion:
+                champ_username, champ_display, set_at, champ_league_name = champion
+                champion_info = f"\n👑 قهرمان لیگ: @{champ_username} ({champ_display})"
+        except:
+            pass
         
         await message.answer(
             f"📊 وضعیت شما:\n\n"
             f"👤 نام کاربری: {username}\n"
             f"🏆 لیگ: {league_name}\n"
             f"👥 وضعیت لیگ: {user_count}/{capacity}\n"
-            f"📅 تاریخ ثبت‌نام: {registered_at}\n\n"
+            f"📅 تاریخ ثبت‌نام: {registered_at}\n"
+            f"{champion_info}\n\n"
             f"✅ ثبت‌نام شما تأیید شده است."
         )
     else:
         await message.answer("⚠️ اطلاعات شما یافت نشد.")
+
+# ---------- هندلر برای دکمه "👑 تالار افتخارات" ----------
+@dp.message(F.text == "👑 تالار افتخارات")
+async def hall_of_fame_button(message: types.Message):
+    """نمایش تالار افتخارات برای کاربران"""
+    user_id = message.from_user.id
+    
+    # بررسی عضویت
+    if not await check_membership(user_id):
+        await message.answer(
+            "❌ ابتدا باید در کانال عضو شوید.\n"
+            "از دکمه '🔄 بررسی عضویت' استفاده کنید."
+        )
+        return
+    
+    await show_hall_of_fame_to_user(message)
 
 # ---------- هندلر برای دکمه "ℹ️ راهنما" ----------
 @dp.message(F.text == "ℹ️ راهنما")
@@ -272,66 +360,14 @@ async def show_help(message: types.Message):
         "2. برای تأیید عضویت از دکمه '🔄 بررسی عضویت' استفاده کنید\n"
         "3. برای ثبت‌نام در لیگ از '🏆 لیگ‌های فعال' استفاده کنید\n"
         "4. هر کاربر فقط می‌تواند یک بار ثبت‌نام کند\n"
-        "5. برای مشاهده وضعیت از '📊 وضعیت من' استفاده کنید\n\n"
-        "⚠️ توجه: پس از تکمیل ظرفیت یک لیگ، امکان ثبت‌نام وجود ندارد."
+        "5. برای مشاهده وضعیت خود از '📊 وضعیت من' استفاده کنید\n"
+        "6. برای مشاهده قهرمانان از '👑 تالار افتخارات' استفاده کنید\n\n"
+        "⚠️ توجه: پس از تکمیل ظرفیت یک لیگ، امکان ثبت‌نام وجود ندارد.\n"
+        "لیگ‌های تکمیل شده بعداً قهرمان مشخص می‌کنند."
     )
     await message.answer(help_text)
 
-# ---------- بقیه توابع ----------
-# در main_aiogram.py به کیبورد اصلی اضافه کنید:
-def get_main_keyboard() -> ReplyKeyboardMarkup:
-    builder = ReplyKeyboardBuilder()
-    
-    builder.button(text="🏆 لیگ‌های فعال")
-    builder.button(text="🔄 بررسی عضویت")
-    builder.button(text="📊 وضعیت من")
-    builder.button(text="👑 تالار افتخارات")  # اضافه شده
-    
-    builder.adjust(2, 2)
-    
-    return builder.as_markup(
-        resize_keyboard=True,
-        one_time_keyboard=False
-    )
-
-# و هندلر آن:
-@dp.message(F.text == "👑 تالار افتخارات")
-async def show_hall_of_fame_to_user(message: types.Message):
-    """نمایش تالار افتخارات برای کاربران عادی"""
-    from database import Database
-    user_db = Database()
-    
-    champions = user_db.get_all_champions()
-    
-    if not champions:
-        text = (
-            "🏆 *تالار افتخارات*\n\n"
-            "𝐏𝐄𝐑𝐒𝐈𝐀𝐍 𝐅𝐎𝐑𝐌𝐀𝐓𝐈𝐎𝐍🏆\n\n"
-            "هنوز هیچ قهرمانی ثبت نشده است.\n"
-            "به زودی قهرمانان لیگ‌ها مشخص می‌شوند."
-        )
-    else:
-        header = "🏆 *قهرمان های تورنومنت ولی های های*\n𝐏𝐄𝐑𝐒𝐈𝐀𝐍 𝐅𝐎𝐑𝐌𝐀𝐓𝐈𝐎𝐍🏆\n\n"
-        
-        champions_text = ""
-        for league_name, champ_username, champ_display, set_date in champions:
-            if champ_display:
-                display = f"{champ_display}"
-            else:
-                display = f"{champ_username}"
-            
-            if champ_username and not champ_username.startswith('@'):
-                username_display = f"@{champ_username}"
-            else:
-                username_display = champ_username
-            
-            champions_text += f"{league_name}: {username_display}({display})🏆\n"
-        
-        text = header + champions_text
-    
-    await message.answer(text, parse_mode='Markdown')
-    user_db.close()
-# انتخاب لیگ
+# ---------- انتخاب لیگ ----------
 @dp.callback_query(F.data.startswith("league_"))
 async def select_league(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
@@ -355,7 +391,7 @@ async def select_league(callback: types.CallbackQuery, state: FSMContext):
     )
     await state.set_state(UserStates.waiting_username)
 
-# دریافت نام کاربری
+# ---------- دریافت نام کاربری ----------
 @dp.message(UserStates.waiting_username)
 async def get_username(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
@@ -376,6 +412,14 @@ async def get_username(message: types.Message, state: FSMContext):
             "منتظر اطلاع‌رسانی‌های بعدی باشید.",
             reply_markup=get_main_keyboard()
         )
+        
+        # نمایش تالار افتخارات همزمان
+        champions = db.get_all_champions()
+        if champions:
+            await message.answer(
+                "🏆 حتماً تالار افتخارات را بررسی کنید تا قهرمانان قبلی را ببینید!",
+                reply_markup=get_main_keyboard()
+            )
     else:
         await message.answer(
             "⚠️ شما قبلاً ثبت‌نام کرده‌اید!",
@@ -384,7 +428,7 @@ async def get_username(message: types.Message, state: FSMContext):
     
     await state.clear()
 
-# تابع لغو
+# ---------- تابع لغو ----------
 @dp.message(Command("cancel"))
 async def cancel_command(message: types.Message, state: FSMContext):
     await state.clear()
@@ -394,6 +438,7 @@ async def cancel_command(message: types.Message, state: FSMContext):
 async def main():
     print("🤖 ربات اصلی با aiogram در حال راه‌اندازی...")
     print(f"📢 کانال مورد بررسی: {CHANNEL_USERNAME}")
+    print("✅ تالار افتخارات اضافه شد")
     print("⚠️ نکته: مطمئن شوید ربات در کانال ادمین است!")
     await dp.start_polling(bot)
 
