@@ -319,7 +319,7 @@ async def show_my_status(message: types.Message):
             champion = db.get_champion(league_id)
             if champion:
                 champ_username, champ_display, set_at, champ_league_name = champion
-                champion_info = f"\n👑 قهرمان لیگ: @{champ_username} ({champ_display})"
+                champion_info = f"\n👑 قهرمان لیگ: {champ_username} ({champ_display})"
         except:
             pass
         
