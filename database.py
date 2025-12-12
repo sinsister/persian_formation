@@ -29,11 +29,11 @@ class Database:
         )
         ''')
         
-        # جدول کاربران
+        # جدول کاربران - user_id به TEXT برای پشتیبانی از هر نوع داده
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
+            user_id TEXT NOT NULL,
             username TEXT,
             league_id INTEGER NOT NULL,
             joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -82,6 +82,16 @@ class Database:
             return cursor.fetchall()
         except Exception as e:
             logger.error(f"خطا در دریافت لیگ‌ها: {e}")
+            return []
+    
+    def get_active_leagues(self):
+        """دریافت لیگ‌های فعال"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT id, name FROM leagues WHERE is_active = 1 ORDER BY id DESC")
+            return cursor.fetchall()
+        except Exception as e:
+            logger.error(f"خطا در دریافت لیگ‌های فعال: {e}")
             return []
     
     def get_league(self, league_id: int):
@@ -146,160 +156,143 @@ class Database:
             logger.error(f"خطا در دریافت لیگ‌های بدون قهرمان: {e}")
             return []
     
-    def get_active_leagues(self):
-        """دریافت لیگ‌های فعال"""
+    def get_league_user_count(self, league_id: int) -> int:
+        """دریافت تعداد کاربران یک لیگ"""
         try:
             cursor = self.conn.cursor()
-            cursor.execute("SELECT id, name FROM leagues WHERE is_active = 1 ORDER BY id DESC")
-            return cursor.fetchall()
+            cursor.execute(
+                "SELECT COUNT(*) FROM users WHERE league_id = ?",
+                (league_id,)
+            )
+            return cursor.fetchone()[0]
         except Exception as e:
-            logger.error(f"خطا در دریافت لیگ‌های فعال: {e}")
-            return []
+            logger.error(f"خطا در دریافت تعداد کاربران: {e}")
+            return 0
     
     # ---------- توابع کاربران ----------
     
-    # در بخش توابع کاربران در database.py:
-
-def add_user_to_league(self, user_id, username: str, league_id: int) -> bool:
-    """افزودن کاربر به لیگ - user_id می‌تواند هر نوع داده‌ای باشد"""
-    try:
-        cursor = self.conn.cursor()
-        cursor.execute(
-            "INSERT INTO users (user_id, username, league_id) VALUES (?, ?, ?)",
-            (str(user_id), username, league_id)  # تبدیل به string
-        )
-        self.conn.commit()
-        return True
-    except Exception as e:
-        logger.error(f"خطا در افزودن کاربر به لیگ: {e}")
-        return False
-
-def get_user_info(self, league_id: int, user_id):
-    """دریافت اطلاعات کاربر در لیگ - user_id می‌تواند هر نوع داده‌ای باشد"""
-    try:
-        cursor = self.conn.cursor()
-        cursor.execute(
-            "SELECT user_id, username FROM users WHERE league_id = ? AND user_id = ?",
-            (league_id, str(user_id))  # تبدیل به string
-        )
-        return cursor.fetchone()
-    except Exception as e:
-        logger.error(f"خطا در دریافت اطلاعات کاربر: {e}")
-        return None
-
-def remove_user_from_league(self, league_id: int, user_id) -> bool:
-    """حذف کاربر از لیگ - user_id می‌تواند هر نوع داده‌ای باشد"""
-    try:
-        cursor = self.conn.cursor()
-        cursor.execute(
-            "DELETE FROM users WHERE league_id = ? AND user_id = ?",
-            (league_id, str(user_id))  # تبدیل به string
-        )
-        self.conn.commit()
-        return cursor.rowcount > 0
-    except Exception as e:
-        logger.error(f"خطا در حذف کاربر از لیگ: {e}")
-        return False
-
-def is_user_in_league(self, user_id, league_id: int) -> bool:
-    """بررسی آیا کاربر در یک لیگ خاص ثبت نام کرده - user_id می‌تواند هر نوع داده‌ای باشد"""
-    try:
-        cursor = self.conn.cursor()
-        cursor.execute(
-            "SELECT COUNT(*) FROM users WHERE user_id = ? AND league_id = ?",
-            (str(user_id), league_id)  # تبدیل به string
-        )
-        return cursor.fetchone()[0] > 0
-    except Exception as e:
-        logger.error(f"خطا در بررسی حضور کاربر در لیگ: {e}")
-        return False
-
-def update_user_username(self, league_id: int, user_id, new_username: str) -> bool:
-    """بروزرسانی نام کاربر در لیگ - user_id می‌تواند هر نوع داده‌ای باشد"""
-    try:
-        cursor = self.conn.cursor()
-        cursor.execute(
-            "UPDATE users SET username = ? WHERE league_id = ? AND user_id = ?",
-            (new_username, league_id, str(user_id))  # تبدیل به string
-        )
-        self.conn.commit()
-        return cursor.rowcount > 0
-    except Exception as e:
-        logger.error(f"خطا در بروزرسانی نام کاربر: {e}")
-        return False
-
-# همچنین در جدول users باید user_id را به TEXT تغییر داد:
-def create_tables(self):
-    """ایجاد جداول مورد نیاز"""
-    cursor = self.conn.cursor()
+    def add_user_to_league(self, user_id, username: str, league_id: int) -> bool:
+        """افزودن کاربر به لیگ - user_id می‌تواند هر نوع داده‌ای باشد"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "INSERT INTO users (user_id, username, league_id) VALUES (?, ?, ?)",
+                (str(user_id), username, league_id)
+            )
+            self.conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"خطا در افزودن کاربر به لیگ: {e}")
+            return False
     
-    # جدول لیگ‌ها
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS leagues (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        capacity INTEGER NOT NULL,
-        is_active INTEGER DEFAULT 1,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    ''')
+    def register_user(self, user_id, username: str, league_id: int) -> bool:
+        """ثبت نام کاربر در یک لیگ خاص"""
+        try:
+            cursor = self.conn.cursor()
+            
+            # بررسی آیا کاربر قبلاً در این لیگ ثبت نام کرده
+            cursor.execute(
+                "SELECT id FROM users WHERE user_id = ? AND league_id = ?",
+                (str(user_id), league_id)
+            )
+            existing = cursor.fetchone()
+            
+            if existing:
+                return False  # کاربر قبلاً در این لیگ ثبت نام کرده
+            
+            # ثبت نام کاربر
+            cursor.execute(
+                "INSERT INTO users (user_id, username, league_id) VALUES (?, ?, ?)",
+                (str(user_id), username, league_id)
+            )
+            self.conn.commit()
+            return True
+            
+        except Exception as e:
+            logger.error(f"خطا در ثبت نام کاربر: {e}")
+            return False
     
-    # جدول کاربران - user_id به TEXT تغییر می‌کند
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id TEXT NOT NULL,  # از INTEGER به TEXT تغییر کرد
-        username TEXT,
-        league_id INTEGER NOT NULL,
-        joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (league_id) REFERENCES leagues (id),
-        UNIQUE(user_id, league_id)
-    )
-    ''')
+    def get_league_users(self, league_id: int):
+        """دریافت کاربران یک لیگ"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "SELECT user_id, username FROM users WHERE league_id = ? ORDER BY id DESC",
+                (league_id,)
+            )
+            return cursor.fetchall()
+        except Exception as e:
+            logger.error(f"خطا در دریافت کاربران لیگ: {e}")
+            return []
     
-    # جدول قهرمانان
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS champions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        league_id INTEGER NOT NULL,
-        game_id TEXT NOT NULL,
-        display_name TEXT,
-        set_by_admin INTEGER,
-        set_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (league_id) REFERENCES leagues (id),
-        UNIQUE(league_id)
-    )
-    ''')
+    def get_user_info(self, league_id: int, user_id):
+        """دریافت اطلاعات کاربر در لیگ"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "SELECT user_id, username FROM users WHERE league_id = ? AND user_id = ?",
+                (league_id, str(user_id))
+            )
+            return cursor.fetchone()
+        except Exception as e:
+            logger.error(f"خطا در دریافت اطلاعات کاربر: {e}")
+            return None
     
-    self.conn.commit()
+    def remove_user_from_league(self, league_id: int, user_id) -> bool:
+        """حذف کاربر از لیگ"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "DELETE FROM users WHERE league_id = ? AND user_id = ?",
+                (league_id, str(user_id))
+            )
+            self.conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"خطا در حذف کاربر از لیگ: {e}")
+            return False
     
-    def is_user_registered(self, user_id: int) -> bool:
+    def update_user_username(self, league_id: int, user_id, new_username: str) -> bool:
+        """بروزرسانی نام کاربر در لیگ"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "UPDATE users SET username = ? WHERE league_id = ? AND user_id = ?",
+                (new_username, league_id, str(user_id))
+            )
+            self.conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"خطا در بروزرسانی نام کاربر: {e}")
+            return False
+    
+    def is_user_registered(self, user_id) -> bool:
         """بررسی آیا کاربر به طور کلی ثبت نام کرده (در هر لیگی)"""
         try:
             cursor = self.conn.cursor()
             cursor.execute(
                 "SELECT COUNT(*) FROM users WHERE user_id = ?",
-                (user_id,)
+                (str(user_id),)
             )
             return cursor.fetchone()[0] > 0
         except Exception as e:
             logger.error(f"خطا در بررسی ثبت نام کاربر: {e}")
             return False
     
-    def is_user_in_league(self, user_id: int, league_id: int) -> bool:
+    def is_user_in_league(self, user_id, league_id: int) -> bool:
         """بررسی آیا کاربر در یک لیگ خاص ثبت نام کرده"""
         try:
             cursor = self.conn.cursor()
             cursor.execute(
                 "SELECT COUNT(*) FROM users WHERE user_id = ? AND league_id = ?",
-                (user_id, league_id)
+                (str(user_id), league_id)
             )
             return cursor.fetchone()[0] > 0
         except Exception as e:
             logger.error(f"خطا در بررسی حضور کاربر در لیگ: {e}")
             return False
     
-    def get_user_leagues(self, user_id: int):
+    def get_user_leagues(self, user_id):
         """دریافت لیگ‌هایی که کاربر در آن‌ها ثبت نام کرده"""
         try:
             cursor = self.conn.cursor()
@@ -308,7 +301,7 @@ def create_tables(self):
                 FROM users u
                 JOIN leagues l ON u.league_id = l.id
                 WHERE u.user_id = ?
-            ''', (user_id,))
+            ''', (str(user_id),))
             return cursor.fetchall()
         except Exception as e:
             logger.error(f"خطا در دریافت لیگ‌های کاربر: {e}")
@@ -385,6 +378,42 @@ def create_tables(self):
         except Exception as e:
             logger.error(f"خطا در حذف قهرمان: {e}")
             return False
+    
+    # ---------- توابع کمکی ----------
+    
+    def get_total_stats(self):
+        """دریافت آمار کلی سیستم"""
+        try:
+            cursor = self.conn.cursor()
+            
+            stats = {}
+            
+            # تعداد کل لیگ‌ها
+            cursor.execute("SELECT COUNT(*) FROM leagues")
+            stats['total_leagues'] = cursor.fetchone()[0]
+            
+            # لیگ‌های فعال
+            cursor.execute("SELECT COUNT(*) FROM leagues WHERE is_active = 1")
+            stats['active_leagues'] = cursor.fetchone()[0]
+            
+            # تعداد کل کاربران
+            cursor.execute("SELECT COUNT(*) FROM users")
+            stats['total_users'] = cursor.fetchone()[0]
+            
+            # تعداد قهرمانان
+            cursor.execute("SELECT COUNT(*) FROM champions")
+            stats['total_champions'] = cursor.fetchone()[0]
+            
+            # ظرفیت کل فعال
+            cursor.execute("SELECT SUM(capacity) FROM leagues WHERE is_active = 1")
+            result = cursor.fetchone()[0]
+            stats['total_capacity'] = result if result else 0
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"خطا در دریافت آمار: {e}")
+            return {}
     
     def __del__(self):
         """بستن اتصال دیتابیس"""
