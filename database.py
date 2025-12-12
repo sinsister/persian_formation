@@ -1,3 +1,4 @@
+# database.py - نسخه اصلاح شده
 import sqlite3
 import logging
 from datetime import datetime
@@ -37,7 +38,7 @@ class Database:
             username TEXT,
             league_id INTEGER NOT NULL,
             joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (league_id) REFERENCES leagues (id),
+            FOREIGN KEY (league_id) REFERENCES leagues (id) ON DELETE CASCADE,
             UNIQUE(user_id, league_id)
         )
         ''')
@@ -51,10 +52,13 @@ class Database:
             display_name TEXT,
             set_by_admin INTEGER,
             set_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (league_id) REFERENCES leagues (id),
+            FOREIGN KEY (league_id) REFERENCES leagues (id) ON DELETE CASCADE,
             UNIQUE(league_id)
         )
         ''')
+        
+        # فعال کردن کلیدهای خارجی
+        cursor.execute('PRAGMA foreign_keys = ON')
         
         self.conn.commit()
     
@@ -78,7 +82,7 @@ class Database:
         """دریافت تمام لیگ‌ها"""
         try:
             cursor = self.conn.cursor()
-            cursor.execute("SELECT id, name, capacity, is_active FROM leagues ORDER BY id DESC")
+            cursor.execute("SELECT id, name, capacity, is_active, created_at FROM leagues ORDER BY id DESC")
             return cursor.fetchall()
         except Exception as e:
             logger.error(f"خطا در دریافت لیگ‌ها: {e}")
@@ -113,12 +117,12 @@ class Database:
             cursor = self.conn.cursor()
             # دریافت وضعیت فعلی
             cursor.execute("SELECT is_active FROM leagues WHERE id = ?", (league_id,))
-            current_status = cursor.fetchone()
+            current = cursor.fetchone()
             
-            if not current_status:
+            if not current:
                 return None
             
-            new_status = 0 if current_status[0] == 1 else 1
+            new_status = 0 if current[0] == 1 else 1
             cursor.execute(
                 "UPDATE leagues SET is_active = ? WHERE id = ?",
                 (new_status, league_id)
@@ -130,11 +134,17 @@ class Database:
             return None
     
     def delete_league(self, league_id: int) -> bool:
-        """حذف لیگ"""
+        """حذف لیگ و تمام داده‌های مرتبط"""
         try:
             cursor = self.conn.cursor()
+            
+            # حذف کاربران مرتبط (به دلیل FOREIGN KEY با CASCADE خودکار حذف می‌شوند)
+            cursor.execute("DELETE FROM champions WHERE league_id = ?", (league_id,))
+            
+            # حذف لیگ
             cursor.execute("DELETE FROM leagues WHERE id = ?", (league_id,))
             self.conn.commit()
+            
             return cursor.rowcount > 0
         except Exception as e:
             logger.error(f"خطا در حذف لیگ: {e}")
@@ -164,31 +174,36 @@ class Database:
                 "SELECT COUNT(*) FROM users WHERE league_id = ?",
                 (league_id,)
             )
-            return cursor.fetchone()[0]
+            result = cursor.fetchone()
+            return result[0] if result else 0
         except Exception as e:
             logger.error(f"خطا در دریافت تعداد کاربران: {e}")
             return 0
     
     # ---------- توابع کاربران ----------
     
-    def add_user_to_league(self, user_id, username: str, league_id: int) -> bool:
-        """افزودن کاربر به لیگ - user_id می‌تواند هر نوع داده‌ای باشد"""
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute(
-                "INSERT INTO users (user_id, username, league_id) VALUES (?, ?, ?)",
-                (str(user_id), username, league_id)
-            )
-            self.conn.commit()
-            return True
-        except Exception as e:
-            logger.error(f"خطا در افزودن کاربر به لیگ: {e}")
-            return False
-    
     def register_user(self, user_id, username: str, league_id: int) -> bool:
         """ثبت نام کاربر در یک لیگ خاص"""
         try:
             cursor = self.conn.cursor()
+            
+            # بررسی آیا لیگ فعال است
+            cursor.execute("SELECT is_active FROM leagues WHERE id = ?", (league_id,))
+            league = cursor.fetchone()
+            
+            if not league or league[0] != 1:
+                return False
+            
+            # بررسی ظرفیت لیگ
+            user_count = self.get_league_user_count(league_id)
+            cursor.execute("SELECT capacity FROM leagues WHERE id = ?", (league_id,))
+            capacity_result = cursor.fetchone()
+            
+            if not capacity_result:
+                return False
+            
+            if user_count >= capacity_result[0]:
+                return False
             
             # بررسی آیا کاربر قبلاً در این لیگ ثبت نام کرده
             cursor.execute(
@@ -198,7 +213,7 @@ class Database:
             existing = cursor.fetchone()
             
             if existing:
-                return False  # کاربر قبلاً در این لیگ ثبت نام کرده
+                return False
             
             # ثبت نام کاربر
             cursor.execute(
@@ -217,7 +232,7 @@ class Database:
         try:
             cursor = self.conn.cursor()
             cursor.execute(
-                "SELECT user_id, username FROM users WHERE league_id = ? ORDER BY id DESC",
+                "SELECT user_id, username FROM users WHERE league_id = ? ORDER BY joined_at DESC",
                 (league_id,)
             )
             return cursor.fetchall()
@@ -266,19 +281,6 @@ class Database:
             logger.error(f"خطا در بروزرسانی نام کاربر: {e}")
             return False
     
-    def is_user_registered(self, user_id) -> bool:
-        """بررسی آیا کاربر به طور کلی ثبت نام کرده (در هر لیگی)"""
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute(
-                "SELECT COUNT(*) FROM users WHERE user_id = ?",
-                (str(user_id),)
-            )
-            return cursor.fetchone()[0] > 0
-        except Exception as e:
-            logger.error(f"خطا در بررسی ثبت نام کاربر: {e}")
-            return False
-    
     def is_user_in_league(self, user_id, league_id: int) -> bool:
         """بررسی آیا کاربر در یک لیگ خاص ثبت نام کرده"""
         try:
@@ -287,7 +289,8 @@ class Database:
                 "SELECT COUNT(*) FROM users WHERE user_id = ? AND league_id = ?",
                 (str(user_id), league_id)
             )
-            return cursor.fetchone()[0] > 0
+            result = cursor.fetchone()
+            return result[0] > 0 if result else False
         except Exception as e:
             logger.error(f"خطا در بررسی حضور کاربر در لیگ: {e}")
             return False
@@ -300,7 +303,7 @@ class Database:
                 SELECT l.id, l.name, l.capacity, u.username
                 FROM users u
                 JOIN leagues l ON u.league_id = l.id
-                WHERE u.user_id = ?
+                WHERE u.user_id = ? AND l.is_active = 1
             ''', (str(user_id),))
             return cursor.fetchall()
         except Exception as e:
@@ -396,8 +399,8 @@ class Database:
             cursor.execute("SELECT COUNT(*) FROM leagues WHERE is_active = 1")
             stats['active_leagues'] = cursor.fetchone()[0]
             
-            # تعداد کل کاربران
-            cursor.execute("SELECT COUNT(*) FROM users")
+            # تعداد کل کاربران (کاربران منحصر به فرد)
+            cursor.execute("SELECT COUNT(DISTINCT user_id) FROM users")
             stats['total_users'] = cursor.fetchone()[0]
             
             # تعداد قهرمانان
@@ -409,13 +412,21 @@ class Database:
             result = cursor.fetchone()[0]
             stats['total_capacity'] = result if result else 0
             
+            # تعداد کل ثبت‌نام‌ها
+            cursor.execute("SELECT COUNT(*) FROM users")
+            stats['total_registrations'] = cursor.fetchone()[0]
+            
             return stats
             
         except Exception as e:
             logger.error(f"خطا در دریافت آمار: {e}")
             return {}
     
-    def __del__(self):
+    def close(self):
         """بستن اتصال دیتابیس"""
-        if hasattr(self, 'conn'):
+        if self.conn:
             self.conn.close()
+    
+    def __del__(self):
+        """بستن اتصال دیتابیس در صورت نابودی آبجکت"""
+        self.close()

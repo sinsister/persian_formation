@@ -1,4 +1,4 @@
-# main_aiogram.py
+# main.py - نسخه اصلاح شده
 import logging
 import asyncio
 from aiogram import Bot, Dispatcher, types, F
@@ -109,14 +109,15 @@ async def show_hall_of_fame_to_user(message_or_callback):
     
     if isinstance(message_or_callback, types.CallbackQuery):
         await message_or_callback.message.answer(
-            text,  # بدون parse_mode
+            text,
             reply_markup=builder.as_markup()
         )
     else:
         await message_or_callback.answer(
-            text,  # بدون parse_mode
+            text,
             reply_markup=builder.as_markup()
         )
+
 # ---------- هندلر بررسی عضویت ----------
 async def handle_membership_check(message: types.Message):
     """بررسی عضویت و نمایش نتیجه"""
@@ -256,7 +257,7 @@ async def show_active_leagues(message: types.Message):
         
         if league_id in user_league_ids:
             # کاربر در این لیگ ثبت‌نام کرده
-            text = f"✅ {league_name} (شما ثبت‌نام کرده‌اید)"
+            text = f"✅ {league_name} (ثبت‌نام کرده‌اید)"
             builder.button(text=text, callback_data=f"already_registered_{league_id}")
         elif user_count >= capacity:
             text = f"🚫 {league_name} (تکمیل)"
@@ -299,27 +300,31 @@ async def show_my_status(message: types.Message):
         return
     
     # نمایش اطلاعات هر لیگ
+    response_texts = []
     for league_id, league_name, capacity, username in user_leagues:
         user_count = db.get_league_user_count(league_id)
         
         # بررسی آیا لیگ قهرمان دارد
         champion_info = ""
-        try:
-            champion = db.get_champion(league_id)
-            if champion:
-                champ_game_id, champ_display, set_at, champ_league_name = champion
-                champion_info = f"\n👑 قهرمان لیگ: {champ_game_id} ({champ_display})"
-        except:
-            pass
+        champion = db.get_champion(league_id)
+        if champion:
+            champ_game_id, champ_display, set_at, champ_league_name = champion
+            champion_info = f"\n👑 قهرمان لیگ: {champ_game_id} ({champ_display})"
         
-        await message.answer(
-            f"📊 وضعیت شما در لیگ:\n\n"
+        response_texts.append(
             f"🏆 لیگ: {league_name}\n"
-            f"👤 نام کاربری: {username}\n"
+            f"👤 نام کاربری: {username or 'ندارد'}\n"
             f"👥 وضعیت لیگ: {user_count}/{capacity}\n"
-            f"{champion_info}\n\n"
+            f"{champion_info}\n"
             f"✅ ثبت‌نام شما تأیید شده است."
         )
+    
+    # اگر بیش از 3 لیگ باشد، در چند پیام ارسال کن
+    if len(response_texts) <= 3:
+        await message.answer("\n\n".join(response_texts))
+    else:
+        for i, text in enumerate(response_texts):
+            await message.answer(f"📊 لیگ {i+1}:\n\n{text}")
 
 # ---------- هندلر برای دکمه "👑 تالار افتخارات" ----------
 @dp.message(F.text == "👑 تالار افتخارات")
@@ -359,31 +364,36 @@ async def show_help(message: types.Message):
 async def select_league(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     
-    league_id = int(callback.data.split('_')[1])
-    league = db.get_league(league_id)
-    
-    if not league or league[3] == 0:
-        await callback.message.edit_text("⚠️ این لیگ دیگر فعال نیست.")
-        return
-    
-    user_id = callback.from_user.id
-    
-    # بررسی آیا کاربر قبلاً در این لیگ ثبت‌نام کرده
-    if db.is_user_in_league(user_id, league_id):
-        await callback.message.edit_text("🚫 شما قبلاً در این لیگ ثبت‌نام کرده‌اید!")
-        return
-    
-    user_count = db.get_league_user_count(league_id)
-    if user_count >= league[2]:
-        await callback.message.edit_text("🚫 این لیگ تکمیل شده است.")
-        return
-    
-    await state.update_data(selected_league=league_id)
-    await callback.message.edit_text(
-        f"🏆 لیگ: {league[1]}\n\n"
-        "لطفاً نام کاربری خود در بازی را وارد کنید:"
-    )
-    await state.set_state(UserStates.waiting_username)
+    try:
+        league_id = int(callback.data.split('_')[1])
+        league = db.get_league(league_id)
+        
+        if not league or league[3] == 0:  # is_active = 0
+            await callback.message.edit_text("⚠️ این لیگ دیگر فعال نیست.")
+            return
+        
+        user_id = callback.from_user.id
+        
+        # بررسی آیا کاربر قبلاً در این لیگ ثبت‌نام کرده
+        if db.is_user_in_league(user_id, league_id):
+            await callback.message.edit_text("🚫 شما قبلاً در این لیگ ثبت‌نام کرده‌اید!")
+            return
+        
+        user_count = db.get_league_user_count(league_id)
+        if user_count >= league[2]:  # capacity
+            await callback.message.edit_text("🚫 این لیگ تکمیل شده است.")
+            return
+        
+        await state.update_data(selected_league=league_id)
+        await callback.message.edit_text(
+            f"🏆 لیگ: {league[1]}\n\n"
+            "لطفاً نام کاربری خود در بازی را وارد کنید:"
+        )
+        await state.set_state(UserStates.waiting_username)
+        
+    except Exception as e:
+        logger.error(f"خطا در انتخاب لیگ: {e}")
+        await callback.message.edit_text("⚠️ خطا در انتخاب لیگ!")
 
 # ---------- هندلر برای لیگ‌های تکمیل شده ----------
 @dp.callback_query(F.data.startswith("full_league_"))
@@ -403,6 +413,10 @@ async def get_username(message: types.Message, state: FSMContext):
     
     if not username:
         await message.answer("❌ نام کاربری نمی‌تواند خالی باشد. لطفاً دوباره وارد کنید:")
+        return
+    
+    if len(username) > 50:
+        await message.answer("❌ نام کاربری نباید بیشتر از ۵۰ کاراکتر باشد. لطفاً دوباره وارد کنید:")
         return
     
     data = await state.get_data()
@@ -446,7 +460,10 @@ async def get_username(message: types.Message, state: FSMContext):
             )
     else:
         await message.answer(
-            "❌ خطا در ثبت‌نام. ممکن است قبلاً در این لیگ ثبت‌نام کرده باشید.",
+            "❌ خطا در ثبت‌نام. ممکن است:\n"
+            "1. قبلاً در این لیگ ثبت‌نام کرده باشید\n"
+            "2. لیگ غیرفعال شده باشد\n"
+            "3. ظرفیت لیگ تکمیل شده باشد",
             reply_markup=get_main_keyboard()
         )
     
@@ -458,14 +475,31 @@ async def cancel_command(message: types.Message, state: FSMContext):
     await state.clear()
     await message.answer("❌ عملیات لغو شد.", reply_markup=get_main_keyboard())
 
+# ---------- هندلر برای پیام‌های غیرمنتظره ----------
+@dp.message()
+async def handle_unexpected_messages(message: types.Message):
+    """هندلر برای پیام‌های غیرمنتظره"""
+    await message.answer(
+        "🤔 نمی‌توانم این پیام را پردازش کنم.\n"
+        "لطفاً از دکمه‌های منوی اصلی استفاده کنید.",
+        reply_markup=get_main_keyboard()
+    )
+
 # ---------- تابع اصلی اجرا ----------
 async def main():
     print("🤖 ربات اصلی با aiogram در حال راه‌اندازی...")
     print(f"📢 کانال مورد بررسی: {CHANNEL_USERNAME}")
-    print("✅ تالار افتخارات اضافه شد")
-    print("✅ کاربران می‌توانند در لیگ‌های مختلف ثبت‌نام کنند")
+    print("✅ دیتابیس راه‌اندازی شد")
+    print("✅ تالار افتخارات فعال")
+    print("✅ مدیریت چند لیگ فعال")
     print("⚠️ نکته: مطمئن شوید ربات در کانال ادمین است!")
-    await dp.start_polling(bot)
+    
+    try:
+        await dp.start_polling(bot)
+    except Exception as e:
+        logger.error(f"خطا در اجرای ربات: {e}")
+    finally:
+        db.close()
 
 if __name__ == '__main__':
     asyncio.run(main())
