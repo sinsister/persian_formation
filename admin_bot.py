@@ -333,14 +333,14 @@ async def manage_league(callback: types.CallbackQuery):
     await callback.answer()
     
     try:
-        league_id = int(callback.data.split('_')[2])
-        league = db.get_league(league_id)
+        parts = callback.data.split('_')
+        league_id = int(parts[2])
         
-        if not league:
+        if not league_id:
             await callback.message.edit_text("⚠️ لیگ پیدا نشد!")
             return
         
-        league_id, name, capacity, is_active, created_at = league
+        league_id, name, capacity, is_active, created_at = league_id
         user_count = db.get_league_user_count(league_id)
         status = "فعال" if is_active == 1 else "غیرفعال"
         
@@ -1025,7 +1025,9 @@ async def delete_league_confirmation(callback: types.CallbackQuery):
     await callback.answer()
     
     try:
-        league_id = int(callback.data.split('_')[2])
+        # دریافت league_id (از index 3)
+        parts = callback.data.split('_')
+        league_id = int(parts[2])  # "delete_league_123" → index 2
         league = db.get_league(league_id)
         
         if not league:
@@ -1058,13 +1060,14 @@ async def delete_league_confirmation(callback: types.CallbackQuery):
     except Exception as e:
         logger.error(f"خطا در تایید حذف لیگ: {e}")
         await callback.message.edit_text("⚠️ خطا در تایید حذف لیگ!")
-
 @dp.callback_query(F.data.startswith("confirm_delete_league_"))
 async def delete_league_final(callback: types.CallbackQuery):
     await callback.answer()
     
     try:
-        league_id = int(callback.data.split('_')[2])
+        # دریافت league_id (از index 3)
+        parts = callback.data.split('_')
+        league_id = int(parts[3])  # "confirm_delete_league_123" → index 3
         league = db.get_league(league_id)
         
         if not league:
@@ -1081,10 +1084,14 @@ async def delete_league_final(callback: types.CallbackQuery):
             )
         else:
             await callback.message.edit_text("❌ خطا در حذف لیگ!")
+    except (IndexError, ValueError) as e:
+        logger.error(f"خطا در پارس کردن league_id: {e}")
+        logger.error(f"callback.data: {callback.data}")
+        logger.error(f"parts: {callback.data.split('_')}")
+        await callback.message.edit_text("⚠️ خطا در شناسایی لیگ!")
     except Exception as e:
         logger.error(f"خطا در حذف لیگ: {e}")
         await callback.message.edit_text("⚠️ خطا در حذف لیگ!")
-
 # ---------- ایجاد لیگ ----------
 
 @dp.message(AdminStates.waiting_league_name)
