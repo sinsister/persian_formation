@@ -1,4 +1,4 @@
-# database.py - نسخه اصلاح شده
+# database.py - نسخه کاملاً اصلاح شده
 import sqlite3
 import logging
 from datetime import datetime
@@ -6,7 +6,7 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 class Database:
-    def __init__(self, db_path="football_league.db"):
+    def __init__(self, db_path="league_bot.db"):  # تغییر به league_bot.db
         self.db_path = db_path
         self.conn = self.connect()
         self.create_tables()
@@ -16,8 +16,11 @@ class Database:
         return sqlite3.connect(self.db_path, check_same_thread=False)
     
     def create_tables(self):
-        """ایجاد جداول مورد نیاز"""
+        """ایجاد جداول مورد نیاز با مدیریت صحیح foreign keys"""
         cursor = self.conn.cursor()
+        
+        # فعال کردن foreign keys
+        cursor.execute('PRAGMA foreign_keys = ON')
         
         # جدول لیگ‌ها
         cursor.execute('''
@@ -30,7 +33,7 @@ class Database:
         )
         ''')
         
-        # جدول کاربران - user_id به TEXT برای پشتیبانی از هر نوع داده
+        # جدول کاربران - با ON DELETE CASCADE
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,7 +46,7 @@ class Database:
         )
         ''')
         
-        # جدول قهرمانان
+        # جدول قهرمانان - با ON DELETE CASCADE
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS champions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -57,10 +60,8 @@ class Database:
         )
         ''')
         
-        # فعال کردن کلیدهای خارجی
-        cursor.execute('PRAGMA foreign_keys = ON')
-        
         self.conn.commit()
+        logger.info("✅ جداول دیتابیس ایجاد شدند")
     
     # ---------- توابع لیگ‌ها ----------
     
@@ -73,7 +74,9 @@ class Database:
                 (name, capacity)
             )
             self.conn.commit()
-            return cursor.lastrowid
+            league_id = cursor.lastrowid
+            logger.info(f"✅ لیگ '{name}' با ظرفیت {capacity} ایجاد شد (ID: {league_id})")
+            return league_id
         except Exception as e:
             logger.error(f"خطا در ایجاد لیگ: {e}")
             return -1
@@ -108,7 +111,7 @@ class Database:
             )
             return cursor.fetchone()
         except Exception as e:
-            logger.error(f"خطا در دریافت لیگ: {e}")
+            logger.error(f"خطا در دریافت لیگ {league_id}: {e}")
             return None
     
     def toggle_league_status(self, league_id: int):
@@ -120,6 +123,7 @@ class Database:
             current = cursor.fetchone()
             
             if not current:
+                logger.error(f"لیگ {league_id} پیدا نشد")
                 return None
             
             new_status = 0 if current[0] == 1 else 1
@@ -128,9 +132,12 @@ class Database:
                 (new_status, league_id)
             )
             self.conn.commit()
+            
+            status_text = "غیرفعال" if new_status == 0 else "فعال"
+            logger.info(f"✅ وضعیت لیگ {league_id} به '{status_text}' تغییر یافت")
             return new_status
         except Exception as e:
-            logger.error(f"خطا در تغییر وضعیت لیگ: {e}")
+            logger.error(f"خطا در تغییر وضعیت لیگ {league_id}: {e}")
             return None
     
     def delete_league(self, league_id: int) -> bool:
@@ -138,16 +145,28 @@ class Database:
         try:
             cursor = self.conn.cursor()
             
-            # حذف کاربران مرتبط (به دلیل FOREIGN KEY با CASCADE خودکار حذف می‌شوند)
-            cursor.execute("DELETE FROM champions WHERE league_id = ?", (league_id,))
+            # دریافت اطلاعات لیگ قبل از حذف
+            league_info = self.get_league(league_id)
+            if not league_info:
+                logger.error(f"لیگ {league_id} پیدا نشد")
+                return False
             
-            # حذف لیگ
+            # حذف لیگ (به دلیل ON DELETE CASCADE، کاربران و قهرمانان به صورت خودکار حذف می‌شوند)
             cursor.execute("DELETE FROM leagues WHERE id = ?", (league_id,))
             self.conn.commit()
             
-            return cursor.rowcount > 0
+            success = cursor.rowcount > 0
+            
+            if success:
+                logger.info(f"✅ لیگ '{league_info[1]}' (ID: {league_id}) با موفقیت حذف شد")
+            else:
+                logger.warning(f"⚠️ لیگ {league_id} حذف نشد")
+            
+            return success
+            
         except Exception as e:
-            logger.error(f"خطا در حذف لیگ: {e}")
+            logger.error(f"خطا در حذف لیگ {league_id}: {e}")
+            self.conn.rollback()
             return False
     
     def get_leagues_without_champion(self):
@@ -177,7 +196,7 @@ class Database:
             result = cursor.fetchone()
             return result[0] if result else 0
         except Exception as e:
-            logger.error(f"خطا در دریافت تعداد کاربران: {e}")
+            logger.error(f"خطا در دریافت تعداد کاربران لیگ {league_id}: {e}")
             return 0
     
     # ---------- توابع کاربران ----------
@@ -187,32 +206,27 @@ class Database:
         try:
             cursor = self.conn.cursor()
             
-            # بررسی آیا لیگ فعال است
-            cursor.execute("SELECT is_active FROM leagues WHERE id = ?", (league_id,))
-            league = cursor.fetchone()
+            # بررسی آیا لیگ وجود دارد و فعال است
+            league = self.get_league(league_id)
+            if not league:
+                logger.error(f"لیگ {league_id} پیدا نشد")
+                return False
             
-            if not league or league[0] != 1:
+            if league[3] != 1:  # is_active != 1
+                logger.error(f"لیگ {league_id} غیرفعال است")
                 return False
             
             # بررسی ظرفیت لیگ
             user_count = self.get_league_user_count(league_id)
-            cursor.execute("SELECT capacity FROM leagues WHERE id = ?", (league_id,))
-            capacity_result = cursor.fetchone()
+            capacity = league[2]  # ظرفیت لیگ
             
-            if not capacity_result:
-                return False
-            
-            if user_count >= capacity_result[0]:
+            if user_count >= capacity:
+                logger.error(f"لیگ {league_id} ظرفیت تکمیل دارد ({user_count}/{capacity})")
                 return False
             
             # بررسی آیا کاربر قبلاً در این لیگ ثبت نام کرده
-            cursor.execute(
-                "SELECT id FROM users WHERE user_id = ? AND league_id = ?",
-                (str(user_id), league_id)
-            )
-            existing = cursor.fetchone()
-            
-            if existing:
+            if self.is_user_in_league(user_id, league_id):
+                logger.error(f"کاربر {user_id} قبلاً در لیگ {league_id} ثبت‌نام کرده است")
                 return False
             
             # ثبت نام کاربر
@@ -221,10 +235,15 @@ class Database:
                 (str(user_id), username, league_id)
             )
             self.conn.commit()
+            
+            logger.info(f"✅ کاربر {user_id} با نام '{username}' در لیگ {league_id} ثبت‌نام کرد")
             return True
             
+        except sqlite3.IntegrityError as e:
+            logger.error(f"خطای یکتایی در ثبت نام کاربر {user_id} در لیگ {league_id}: {e}")
+            return False
         except Exception as e:
-            logger.error(f"خطا در ثبت نام کاربر: {e}")
+            logger.error(f"خطا در ثبت نام کاربر {user_id} در لیگ {league_id}: {e}")
             return False
     
     def get_league_users(self, league_id: int):
@@ -237,7 +256,7 @@ class Database:
             )
             return cursor.fetchall()
         except Exception as e:
-            logger.error(f"خطا در دریافت کاربران لیگ: {e}")
+            logger.error(f"خطا در دریافت کاربران لیگ {league_id}: {e}")
             return []
     
     def get_user_info(self, league_id: int, user_id):
@@ -250,21 +269,33 @@ class Database:
             )
             return cursor.fetchone()
         except Exception as e:
-            logger.error(f"خطا در دریافت اطلاعات کاربر: {e}")
+            logger.error(f"خطا در دریافت اطلاعات کاربر {user_id} در لیگ {league_id}: {e}")
             return None
     
     def remove_user_from_league(self, league_id: int, user_id) -> bool:
         """حذف کاربر از لیگ"""
         try:
             cursor = self.conn.cursor()
+            
+            # دریافت اطلاعات کاربر قبل از حذف
+            user_info = self.get_user_info(league_id, user_id)
+            
             cursor.execute(
                 "DELETE FROM users WHERE league_id = ? AND user_id = ?",
                 (league_id, str(user_id))
             )
             self.conn.commit()
-            return cursor.rowcount > 0
+            
+            success = cursor.rowcount > 0
+            
+            if success:
+                username = user_info[1] if user_info else "نامشخص"
+                logger.info(f"✅ کاربر {user_id} ({username}) از لیگ {league_id} حذف شد")
+            
+            return success
+            
         except Exception as e:
-            logger.error(f"خطا در حذف کاربر از لیگ: {e}")
+            logger.error(f"خطا در حذف کاربر {user_id} از لیگ {league_id}: {e}")
             return False
     
     def update_user_username(self, league_id: int, user_id, new_username: str) -> bool:
@@ -276,9 +307,16 @@ class Database:
                 (new_username, league_id, str(user_id))
             )
             self.conn.commit()
-            return cursor.rowcount > 0
+            
+            success = cursor.rowcount > 0
+            
+            if success:
+                logger.info(f"✅ نام کاربری {user_id} در لیگ {league_id} به '{new_username}' تغییر یافت")
+            
+            return success
+            
         except Exception as e:
-            logger.error(f"خطا در بروزرسانی نام کاربر: {e}")
+            logger.error(f"خطا در بروزرسانی نام کاربر {user_id} در لیگ {league_id}: {e}")
             return False
     
     def is_user_in_league(self, user_id, league_id: int) -> bool:
@@ -292,7 +330,7 @@ class Database:
             result = cursor.fetchone()
             return result[0] > 0 if result else False
         except Exception as e:
-            logger.error(f"خطا در بررسی حضور کاربر در لیگ: {e}")
+            logger.error(f"خطا در بررسی حضور کاربر {user_id} در لیگ {league_id}: {e}")
             return False
     
     def get_user_leagues(self, user_id):
@@ -304,10 +342,11 @@ class Database:
                 FROM users u
                 JOIN leagues l ON u.league_id = l.id
                 WHERE u.user_id = ? AND l.is_active = 1
+                ORDER BY l.id DESC
             ''', (str(user_id),))
             return cursor.fetchall()
         except Exception as e:
-            logger.error(f"خطا در دریافت لیگ‌های کاربر: {e}")
+            logger.error(f"خطا در دریافت لیگ‌های کاربر {user_id}: {e}")
             return []
     
     # ---------- توابع قهرمانان ----------
@@ -328,17 +367,23 @@ class Database:
                     SET game_id = ?, display_name = ?, set_by_admin = ?, set_at = CURRENT_TIMESTAMP
                     WHERE league_id = ?
                 ''', (game_id, display_name, admin_id, league_id))
+                action = "بروزرسانی"
             else:
                 # ایجاد قهرمان جدید
                 cursor.execute('''
                     INSERT INTO champions (league_id, game_id, display_name, set_by_admin)
                     VALUES (?, ?, ?, ?)
                 ''', (league_id, game_id, display_name, admin_id))
+                action = "ایجاد"
             
             self.conn.commit()
+            
+            league_info = self.get_league(league_id)
+            league_name = league_info[1] if league_info else f"لیگ {league_id}"
+            logger.info(f"✅ قهرمان لیگ '{league_name}' {action} شد: {game_id} ({display_name})")
             return True
         except Exception as e:
-            logger.error(f"خطا در ذخیره قهرمان: {e}")
+            logger.error(f"خطا در ذخیره قهرمان برای لیگ {league_id}: {e}")
             return False
     
     def get_champion(self, league_id: int):
@@ -353,7 +398,7 @@ class Database:
             ''', (league_id,))
             return cursor.fetchone()
         except Exception as e:
-            logger.error(f"خطا در دریافت قهرمان: {e}")
+            logger.error(f"خطا در دریافت قهرمان لیگ {league_id}: {e}")
             return None
     
     def get_all_champions(self):
@@ -375,11 +420,22 @@ class Database:
         """حذف قهرمان یک لیگ"""
         try:
             cursor = self.conn.cursor()
+            
+            # دریافت اطلاعات قهرمان قبل از حذف
+            champion = self.get_champion(league_id)
+            
             cursor.execute("DELETE FROM champions WHERE league_id = ?", (league_id,))
             self.conn.commit()
-            return cursor.rowcount > 0
+            
+            success = cursor.rowcount > 0
+            
+            if success and champion:
+                logger.info(f"✅ قهرمان {champion[0]} ({champion[1]}) از لیگ {league_id} حذف شد")
+            
+            return success
+            
         except Exception as e:
-            logger.error(f"خطا در حذف قهرمان: {e}")
+            logger.error(f"خطا در حذف قهرمان لیگ {league_id}: {e}")
             return False
     
     # ---------- توابع کمکی ----------
@@ -416,16 +472,31 @@ class Database:
             cursor.execute("SELECT COUNT(*) FROM users")
             stats['total_registrations'] = cursor.fetchone()[0]
             
+            logger.info(f"📊 آمار سیستم: {stats['total_leagues']} لیگ، {stats['total_users']} کاربر، {stats['total_champions']} قهرمان")
             return stats
             
         except Exception as e:
             logger.error(f"خطا در دریافت آمار: {e}")
             return {}
     
+    def check_foreign_keys(self):
+        """بررسی وضعیت foreign keys"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute('PRAGMA foreign_keys')
+            result = cursor.fetchone()
+            status = result[0] if result else 0
+            logger.info(f"🔑 وضعیت FOREIGN KEYS: {'فعال' if status == 1 else 'غیرفعال'}")
+            return status == 1
+        except Exception as e:
+            logger.error(f"خطا در بررسی foreign keys: {e}")
+            return False
+    
     def close(self):
         """بستن اتصال دیتابیس"""
         if self.conn:
             self.conn.close()
+            logger.info("✅ اتصال دیتابیس بسته شد")
     
     def __del__(self):
         """بستن اتصال دیتابیس در صورت نابودی آبجکت"""
