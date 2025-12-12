@@ -1,4 +1,4 @@
-# admin_panel.py - نسخه اصلاح شده
+# admin_panel.py - نسخه کاملاً اصلاح شده
 import logging
 import asyncio
 from aiogram import Bot, Dispatcher, types, F
@@ -6,7 +6,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder, ReplyKeyboardMarkup
+from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardMarkup
 from config import ADMIN_BOT_TOKEN, ADMIN_PASSWORD
 from database import Database
 
@@ -24,7 +24,6 @@ class AdminStates(StatesGroup):
     waiting_league_capacity = State()
     waiting_champion_game_id = State()
     waiting_champion_display_name = State()
-    waiting_user_action = State()
     waiting_new_username = State()
     waiting_user_id_to_add = State()
     waiting_username_for_new_user = State()
@@ -36,6 +35,17 @@ admin_sessions = set()
 # ---------- اینیشیالایز ----------
 bot = Bot(token=ADMIN_BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
+
+# ---------- تابع کمکی برای استخراج league_id ----------
+def extract_league_id(callback_data: str) -> int:
+    """استخراج league_id از callback data"""
+    try:
+        # همیشه آخرین بخش را به عنوان league_id بگیر
+        parts = callback_data.split('_')
+        return int(parts[-1])
+    except (IndexError, ValueError) as e:
+        logger.error(f"خطا در استخراج league_id از '{callback_data}': {e}")
+        raise ValueError(f"Invalid league_id in callback data: {callback_data}")
 
 # ---------- ایجاد اینلاین کیبورد همیشگی ----------
 def get_persistent_inline_keyboard():
@@ -333,14 +343,14 @@ async def manage_league(callback: types.CallbackQuery):
     await callback.answer()
     
     try:
-        parts = callback.data.split('_')
-        league_id = int(parts[2])
+        league_id = extract_league_id(callback.data)
+        league = db.get_league(league_id)
         
-        if not league_id:
+        if not league:
             await callback.message.edit_text("⚠️ لیگ پیدا نشد!")
             return
         
-        league_id, name, capacity, is_active, created_at = league_id
+        league_id, name, capacity, is_active, created_at = league
         user_count = db.get_league_user_count(league_id)
         status = "فعال" if is_active == 1 else "غیرفعال"
         
@@ -405,7 +415,7 @@ async def toggle_league(callback: types.CallbackQuery):
     await callback.answer()
     
     try:
-        league_id = int(callback.data.split('_')[1])
+        league_id = extract_league_id(callback.data)
         new_status = db.toggle_league_status(league_id)
         
         if new_status is not None:
@@ -476,11 +486,11 @@ async def toggle_league(callback: types.CallbackQuery):
 # ---------- مدیریت کاربران ----------
 
 @dp.callback_query(F.data.startswith("view_users_"))
-async def view_users(callback: types.CallbackQuery, state: FSMContext):
+async def view_users(callback: types.CallbackQuery):
     await callback.answer()
     
     try:
-        league_id = int(callback.data.split('_')[2])
+        league_id = extract_league_id(callback.data)
         league = db.get_league(league_id)
         
         if not league:
@@ -725,7 +735,7 @@ async def add_user_start(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     
     try:
-        league_id = int(callback.data.split('_')[2])
+        league_id = extract_league_id(callback.data)
         league = db.get_league(league_id)
         
         if not league:
@@ -841,7 +851,7 @@ async def set_champion_start(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     
     try:
-        league_id = int(callback.data.split('_')[2])
+        league_id = extract_league_id(callback.data)
         league = db.get_league(league_id)
         
         if not league:
@@ -924,7 +934,7 @@ async def edit_champion_start(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     
     try:
-        league_id = int(callback.data.split('_')[2])
+        league_id = extract_league_id(callback.data)
         league = db.get_league(league_id)
         champion = db.get_champion(league_id)
         
@@ -961,7 +971,7 @@ async def remove_champion_confirmation(callback: types.CallbackQuery):
     await callback.answer()
     
     try:
-        league_id = int(callback.data.split('_')[2])
+        league_id = extract_league_id(callback.data)
         league = db.get_league(league_id)
         champion = db.get_champion(league_id)
         
@@ -998,7 +1008,7 @@ async def remove_champion_final(callback: types.CallbackQuery):
     await callback.answer()
     
     try:
-        league_id = int(callback.data.split('_')[2])
+        league_id = extract_league_id(callback.data)
         league = db.get_league(league_id)
         
         if not league:
@@ -1025,9 +1035,7 @@ async def delete_league_confirmation(callback: types.CallbackQuery):
     await callback.answer()
     
     try:
-        # دریافت league_id (از index 3)
-        parts = callback.data.split('_')
-        league_id = int(parts[2])  # "delete_league_123" → index 2
+        league_id = extract_league_id(callback.data)
         league = db.get_league(league_id)
         
         if not league:
@@ -1060,14 +1068,13 @@ async def delete_league_confirmation(callback: types.CallbackQuery):
     except Exception as e:
         logger.error(f"خطا در تایید حذف لیگ: {e}")
         await callback.message.edit_text("⚠️ خطا در تایید حذف لیگ!")
+
 @dp.callback_query(F.data.startswith("confirm_delete_league_"))
 async def delete_league_final(callback: types.CallbackQuery):
     await callback.answer()
     
     try:
-        # دریافت league_id (از index 3)
-        parts = callback.data.split('_')
-        league_id = int(parts[3])  # "confirm_delete_league_123" → index 3
+        league_id = extract_league_id(callback.data)
         league = db.get_league(league_id)
         
         if not league:
@@ -1084,14 +1091,10 @@ async def delete_league_final(callback: types.CallbackQuery):
             )
         else:
             await callback.message.edit_text("❌ خطا در حذف لیگ!")
-    except (IndexError, ValueError) as e:
-        logger.error(f"خطا در پارس کردن league_id: {e}")
-        logger.error(f"callback.data: {callback.data}")
-        logger.error(f"parts: {callback.data.split('_')}")
-        await callback.message.edit_text("⚠️ خطا در شناسایی لیگ!")
     except Exception as e:
         logger.error(f"خطا در حذف لیگ: {e}")
         await callback.message.edit_text("⚠️ خطا در حذف لیگ!")
+
 # ---------- ایجاد لیگ ----------
 
 @dp.message(AdminStates.waiting_league_name)
@@ -1174,7 +1177,7 @@ async def main():
     print("✅ اینلاین کیبورد همیشگی فعال شد")
     print("✅ تالار افتخارات با آیدی بازی (هر چیزی) اضافه شد")
     print("✅ مدیریت کامل لیگ‌ها و کاربران فعال شد")
-    print("✅ تمام توابع database اضافه شدند")
+    print("✅ سیستم حذف لیگ اصلاح شد")
     
     try:
         await dp.start_polling(bot)
