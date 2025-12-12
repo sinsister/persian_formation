@@ -1,3 +1,4 @@
+# admin_bot_aiogram.py
 import logging
 import asyncio
 from aiogram import Bot, Dispatcher, types, F
@@ -21,10 +22,10 @@ class AdminStates(StatesGroup):
     waiting_password = State()
     waiting_league_name = State()
     waiting_league_capacity = State()
-    waiting_champion_game_id = State()  # فقط آیدی بازی
+    waiting_champion_game_id = State()
     waiting_champion_display_name = State()
-    waiting_user_action = State()  # حالت جدید برای ویرایش کاربر
-    waiting_new_username = State()  # حالت جدید برای نام کاربری جدید
+    waiting_user_action = State()
+    waiting_new_username = State()
 
 # ---------- متغیرهای سراسری ----------
 db = Database()
@@ -79,7 +80,6 @@ async def show_hall_of_fame(message_or_callback, include_persistent_keyboard=Tru
             "سپس از بخش مدیریت لیگ، قهرمان آن را تعیین کنید."
         )
     else:
-        # ایجاد متن تالار افتخارات - بدون Markdown مشکل‌ساز
         header = " قهرمان های تورنومنت ولیگ های\nPERSIAN FORMATION🏆\n\n"
         
         champions_text = ""
@@ -89,7 +89,6 @@ async def show_hall_of_fame(message_or_callback, include_persistent_keyboard=Tru
             else:
                 display = f"{champ_game_id}"
             
-            # اضافه کردن کاراکتر ایمن
             champions_text += f"{league_name}: {champ_game_id}({display})🏆\n"
         
         text = header + champions_text
@@ -112,18 +111,17 @@ async def show_hall_of_fame(message_or_callback, include_persistent_keyboard=Tru
     
     if isinstance(message_or_callback, types.CallbackQuery):
         await message_or_callback.message.edit_text(
-            text,  # ❌ حذف parse_mode='Markdown'
+            text,
             reply_markup=reply_markup
         )
     else:
         await message_or_callback.answer(
-            text,  # ❌ حذف parse_mode='Markdown'
+            text,
             reply_markup=reply_markup
         )
 
 # ---------- هندلرهای اصلی با اینلاین کیبورد همیشگی ----------
 
-# دستور /start با اینلاین کیبورد همیشگی
 @dp.message(Command("start"))
 async def admin_start(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
@@ -141,7 +139,6 @@ async def admin_start(message: types.Message, state: FSMContext):
     await message.answer("🔐 لطفاً رمز عبور ادمین را وارد کنید:")
     await state.set_state(AdminStates.waiting_password)
 
-# بررسی رمز عبور با اینلاین کیبورد
 @dp.message(AdminStates.waiting_password)
 async def check_password(message: types.Message, state: FSMContext):
     password = message.text.strip()
@@ -165,7 +162,6 @@ async def check_password(message: types.Message, state: FSMContext):
         )
         await state.clear()
 
-# اینلاین کیبورد همیشگی - لیست لیگ‌ها
 @dp.callback_query(F.data == "list_leagues_persistent")
 async def list_leagues_persistent(callback: types.CallbackQuery):
     await callback.answer()
@@ -176,7 +172,6 @@ async def list_leagues_persistent(callback: types.CallbackQuery):
     
     await list_leagues_handler(callback, include_persistent_keyboard=True)
 
-# اینلاین کیبورد همیشگی - تالار افتخارات
 @dp.callback_query(F.data == "hall_of_fame_persistent")
 async def hall_of_fame_persistent(callback: types.CallbackQuery):
     await callback.answer()
@@ -187,7 +182,6 @@ async def hall_of_fame_persistent(callback: types.CallbackQuery):
     
     await show_hall_of_fame(callback, include_persistent_keyboard=True)
 
-# اینلاین کیبورد همیشگی - ایجاد لیگ
 @dp.callback_query(F.data == "create_league_persistent")
 async def create_league_persistent(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
@@ -199,7 +193,6 @@ async def create_league_persistent(callback: types.CallbackQuery, state: FSMCont
     await callback.message.edit_text("📝 لطفاً نام لیگ جدید را وارد کنید:")
     await state.set_state(AdminStates.waiting_league_name)
 
-# اینلاین کیبورد همیشگی - بازآوری
 @dp.callback_query(F.data == "refresh_admin_panel")
 async def refresh_admin_panel_persistent(callback: types.CallbackQuery):
     await callback.answer()
@@ -210,6 +203,14 @@ async def refresh_admin_panel_persistent(callback: types.CallbackQuery):
     
     await callback.message.edit_text(
         "🔄 پنل بازآوری شد!\nاز دکمه‌های زیر استفاده کنید:",
+        reply_markup=get_persistent_inline_keyboard()
+    )
+
+@dp.callback_query(F.data == "back_to_admin_menu_persistent")
+async def back_to_admin_menu_persistent(callback: types.CallbackQuery):
+    await callback.answer()
+    await callback.message.edit_text(
+        "👨‍💼 منوی اصلی مدیریت\n\nاز دکمه‌های زیر استفاده کنید:",
         reply_markup=get_persistent_inline_keyboard()
     )
 
@@ -271,12 +272,19 @@ async def list_leagues_handler(message_or_callback, include_persistent_keyboard=
     else:
         await message_or_callback.answer(text, reply_markup=builder.as_markup())
 
-# مدیریت لیگ (جزئیات) با کیبورد همیشگی
+# ---------- مدیریت لیگ‌ها ----------
+
 @dp.callback_query(F.data.startswith("admin_league_"))
 async def manage_league(callback: types.CallbackQuery):
     await callback.answer()
     
-    league_id = int(callback.data.split('_')[2])
+    # استخراج league_id از callback_data
+    parts = callback.data.split('_')
+    if len(parts) < 3:
+        await callback.message.edit_text("⚠️ خطا در شناسایی لیگ!")
+        return
+    
+    league_id = int(parts[2])
     league = db.get_league(league_id)
     
     if not league:
@@ -348,455 +356,6 @@ async def manage_league(callback: types.CallbackQuery):
         reply_markup=builder.as_markup()
     )
 
-# ---------- مدیریت کاربران (قابلیت ویرایش) ----------
-
-@dp.callback_query(F.data.startswith("view_users_"))
-async def view_users(callback: types.CallbackQuery, state: FSMContext):
-    await callback.answer()
-    
-    league_id = int(callback.data.split('_')[2])
-    league = db.get_league(league_id)
-    
-    if not league:
-        await callback.message.edit_text("⚠️ لیگ پیدا نشد!")
-        return
-    
-    await state.update_data(current_league_id=league_id)
-    
-    users = db.get_league_users(league_id)
-    
-    if not users:
-        users_text = "هیچ کاربری ثبت‌نام نکرده است."
-        builder = InlineKeyboardBuilder()
-        builder.button(text="➕ افزودن کاربر", callback_data=f"add_user_{league_id}")
-        builder.button(text="🔙 بازگشت", callback_data=f"admin_league_{league_id}")
-        builder.adjust(2)
-    else:
-        users_text = "\n".join([f"{i+1}. {username if username else f'آیدی: {user_id}'} (ID: {user_id})" 
-                               for i, (user_id, username) in enumerate(users)])
-        
-        # ایجاد اینلاین کیبورد با قابلیت انتخاب کاربر برای ویرایش
-        builder = InlineKeyboardBuilder()
-        
-        # دکمه‌های ویرایش برای هر کاربر
-        for user_id, username in users:
-            display_name = username if username else f"آیدی: {user_id}"
-            if len(display_name) > 20:
-                display_name = display_name[:20] + "..."
-            builder.button(text=f"✏️ {display_name}", callback_data=f"edit_user_{league_id}_{user_id}")
-        
-        builder.button(text="➕ افزودن کاربر", callback_data=f"add_user_{league_id}")
-        builder.button(text="🔙 بازگشت به مدیریت", callback_data=f"admin_league_{league_id}")
-        builder.button(text="📋 لیست لیگ‌ها", callback_data="list_leagues_persistent")
-        
-        # تنظیم چیدمان
-        if len(users) <= 5:
-            builder.adjust(1, 2, 1)
-        else:
-            builder.adjust(2, 2, 1)
-    
-    await callback.message.edit_text(
-        f"👥 کاربران لیگ '{league[1]}':\n\n"
-        f"{users_text}\n\n"
-        f"برای ویرایش یا حذف روی کاربر مورد نظر کلیک کنید:",
-        reply_markup=builder.as_markup()
-    )
-
-@dp.callback_query(F.data.startswith("edit_user_"))
-async def edit_user_options(callback: types.CallbackQuery, state: FSMContext):
-    await callback.answer()
-    
-    parts = callback.data.split('_')
-    league_id = int(parts[2])
-    user_id = int(parts[3])
-    
-    # دریافت اطلاعات کاربر
-    user_info = db.get_user_info(league_id, user_id)
-    if not user_info:
-        await callback.message.edit_text("⚠️ کاربر پیدا نشد!")
-        return
-    
-    await state.update_data(
-        editing_league_id=league_id,
-        editing_user_id=user_id,
-        editing_username=user_info[1]
-    )
-    
-    # دریافت اطلاعات لیگ
-    league = db.get_league(league_id)
-    league_name = league[1] if league else "لیگ"
-    
-    builder = InlineKeyboardBuilder()
-    builder.button(text="✏️ تغییر نام کاربری", callback_data=f"change_username_{league_id}_{user_id}")
-    builder.button(text="🗑️ حذف کاربر از لیگ", callback_data=f"delete_user_{league_id}_{user_id}")
-    builder.button(text="🔙 بازگشت به لیست کاربران", callback_data=f"view_users_{league_id}")
-    builder.adjust(2, 1)
-    
-    await callback.message.edit_text(
-        f"⚙️ مدیریت کاربر:\n\n"
-        f"🏆 لیگ: {league_name}\n"
-        f"👤 آیدی کاربر: {user_id}\n"
-        f"📛 نام کاربری: {user_info[1] if user_info[1] else 'ندارد'}\n\n"
-        f"عملیات مورد نظر را انتخاب کنید:",
-        reply_markup=builder.as_markup()
-    )
-
-@dp.callback_query(F.data.startswith("change_username_"))
-async def change_username_start(callback: types.CallbackQuery, state: FSMContext):
-    await callback.answer()
-    
-    parts = callback.data.split('_')
-    league_id = int(parts[2])
-    user_id = int(parts[3])
-    
-    user_info = db.get_user_info(league_id, user_id)
-    if not user_info:
-        await callback.message.edit_text("⚠️ کاربر پیدا نشد!")
-        return
-    
-    await state.update_data(
-        changing_username_league_id=league_id,
-        changing_username_user_id=user_id,
-        current_username=user_info[1]
-    )
-    
-    await callback.message.edit_text(
-        f"✏️ تغییر نام کاربری\n\n"
-        f"آیدی کاربر: {user_id}\n"
-        f"نام فعلی: {user_info[1] if user_info[1] else 'ندارد'}\n\n"
-        f"لطفاً نام کاربری جدید را وارد کنید:",
-        reply_markup=None
-    )
-    
-    await state.set_state(AdminStates.waiting_new_username)
-
-@dp.callback_query(F.data.startswith("delete_user_"))
-async def delete_user_confirmation(callback: types.CallbackQuery):
-    await callback.answer()
-    
-    parts = callback.data.split('_')
-    league_id = int(parts[2])
-    user_id = int(parts[3])
-    
-    user_info = db.get_user_info(league_id, user_id)
-    if not user_info:
-        await callback.message.edit_text("⚠️ کاربر پیدا نشد!")
-        return
-    
-    league = db.get_league(league_id)
-    league_name = league[1] if league else "لیگ"
-    
-    builder = InlineKeyboardBuilder()
-    builder.button(text="✅ بله، حذف کن", callback_data=f"confirm_delete_user_{league_id}_{user_id}")
-    builder.button(text="❌ خیر، انصراف", callback_data=f"edit_user_{league_id}_{user_id}")
-    builder.adjust(2)
-    
-    await callback.message.edit_text(
-        f"⚠️ آیا مطمئن هستید می‌خواهید این کاربر را از لیگ حذف کنید؟\n\n"
-        f"🏆 لیگ: {league_name}\n"
-        f"👤 آیدی کاربر: {user_id}\n"
-        f"📛 نام کاربری: {user_info[1] if user_info[1] else 'ندارد'}\n\n"
-        f"❌ این عمل قابل بازگشت نیست!",
-        reply_markup=builder.as_markup()
-    )
-
-@dp.callback_query(F.data.startswith("confirm_delete_user_"))
-async def delete_user_final(callback: types.CallbackQuery):
-    await callback.answer()
-    
-    parts = callback.data.split('_')
-    league_id = int(parts[2])
-    user_id = int(parts[3])
-    
-    user_info = db.get_user_info(league_id, user_id)
-    if not user_info:
-        await callback.message.edit_text("⚠️ کاربر پیدا نشد!")
-        return
-    
-    league = db.get_league(league_id)
-    league_name = league[1] if league else "لیگ"
-    
-    # حذف کاربر از لیگ
-    success = db.remove_user_from_league(league_id, user_id)
-    
-    if success:
-        builder = InlineKeyboardBuilder()
-        builder.button(text="🔙 بازگشت به لیست کاربران", callback_data=f"view_users_{league_id}")
-        builder.button(text="🏆 مدیریت لیگ", callback_data=f"admin_league_{league_id}")
-        builder.adjust(1)
-        
-        await callback.message.edit_text(
-            f"✅ کاربر با موفقیت از لیگ حذف شد!\n\n"
-            f"🏆 لیگ: {league_name}\n"
-            f"👤 آیدی کاربر: {user_id}\n"
-            f"📛 نام کاربری: {user_info[1] if user_info[1] else 'ندارد'}",
-            reply_markup=builder.as_markup()
-        )
-    else:
-        await callback.message.edit_text("❌ خطا در حذف کاربر!")
-
-@dp.callback_query(F.data.startswith("add_user_"))
-async def add_user_start(callback: types.CallbackQuery, state: FSMContext):
-    await callback.answer()
-    
-    league_id = int(callback.data.split('_')[2])
-    league = db.get_league(league_id)
-    
-    if not league:
-        await callback.message.edit_text("⚠️ لیگ پیدا نشد!")
-        return
-    
-    # بررسی ظرفیت
-    user_count = db.get_league_user_count(league_id)
-    if user_count >= league[2]:
-        await callback.answer("⚠️ ظرفیت لیگ تکمیل است!", show_alert=True)
-        return
-    
-    await state.update_data(
-        adding_user_league_id=league_id,
-        adding_user_league_name=league[1]
-    )
-    
-    await callback.message.edit_text(
-        f"➕ افزودن کاربر جدید به لیگ: {league[1]}\n\n"
-        f"⚠️ توجه: کاربر می‌تواند در لیگ‌های مختلف ثبت‌نام کند.\n\n"
-        f"لطفاً آیدی عددی کاربر را وارد کنید:",
-        reply_markup=None
-    )
-    
-    await state.set_state(AdminStates.waiting_user_action)
-
-@dp.message(AdminStates.waiting_user_action)
-async def get_user_id_for_add(message: types.Message, state: FSMContext):
-    try:
-        user_id = int(message.text.strip())
-        
-        data = await state.get_data()
-        league_id = data.get('adding_user_league_id')
-        league_name = data.get('adding_user_league_name')
-        
-        # بررسی آیا کاربر قبلاً در این لیگ ثبت‌نام کرده
-        if db.is_user_in_league(user_id, league_id):
-            await message.answer(
-                f"⚠️ این کاربر قبلاً در این لیگ ثبت‌نام کرده است!\n\n"
-                f"لطفاً آیدی کاربر دیگری را وارد کنید:"
-            )
-            return
-        
-        await state.update_data(adding_user_user_id=user_id)
-        await message.answer(
-            f"👤 آیدی کاربر: {user_id}\n"
-            f"🏆 لیگ: {league_name}\n\n"
-            f"لطفاً نام کاربری را وارد کنید (می‌تواند خالی باشد):"
-        )
-        
-        await state.set_state(AdminStates.waiting_new_username)
-        
-    except ValueError:
-        await message.answer("❌ لطفاً یک عدد معتبر وارد کنید (آیدی کاربر):")
-
-@dp.message(AdminStates.waiting_new_username)
-async def save_new_username(message: types.Message, state: FSMContext):
-    new_username = message.text.strip()
-    
-    data = await state.get_data()
-    
-    # بررسی اینکه آیا در حال افزودن کاربر جدید هستیم یا تغییر نام کاربری
-    if 'adding_user_user_id' in data:
-        # حالت افزودن کاربر جدید
-        league_id = data.get('adding_user_league_id')
-        user_id = data.get('adding_user_user_id')
-        league_name = data.get('adding_user_league_name')
-        
-        # ذخیره کاربر در دیتابیس
-        success = db.add_user_to_league(user_id, new_username, league_id)
-        
-        if success:
-            builder = InlineKeyboardBuilder()
-            builder.button(text="🔙 بازگشت به لیست کاربران", callback_data=f"view_users_{league_id}")
-            builder.button(text="➕ افزودن کاربر دیگر", callback_data=f"add_user_{league_id}")
-            builder.adjust(1)
-            
-            await message.answer(
-                f"✅ کاربر با موفقیت به لیگ اضافه شد!\n\n"
-                f"🏆 لیگ: {league_name}\n"
-                f"👤 آیدی کاربر: {user_id}\n"
-                f"📛 نام کاربری: {new_username if new_username else 'ندارد'}",
-                reply_markup=builder.as_markup()
-            )
-        else:
-            await message.answer("❌ خطا در اضافه کردن کاربر. لطفاً دوباره تلاش کنید.")
-    
-    else:
-        # حالت تغییر نام کاربری
-        league_id = data.get('changing_username_league_id')
-        user_id = data.get('changing_username_user_id')
-        
-        if not league_id or not user_id:
-            await message.answer("❌ خطایی رخ داده است. لطفاً دوباره شروع کنید.")
-            await state.clear()
-            return
-        
-        success = db.update_user_username(league_id, user_id, new_username)
-        
-        if success:
-            league = db.get_league(league_id)
-            league_name = league[1] if league else "لیگ"
-            
-            builder = InlineKeyboardBuilder()
-            builder.button(text="🔙 بازگشت به لیست کاربران", callback_data=f"view_users_{league_id}")
-            builder.button(text="🏆 مدیریت لیگ", callback_data=f"admin_league_{league_id}")
-            builder.adjust(1)
-            
-            await message.answer(
-                f"✅ نام کاربری با موفقیت تغییر یافت!\n\n"
-                f"🏆 لیگ: {league_name}\n"
-                f"👤 آیدی کاربر: {user_id}\n"
-                f"📛 نام جدید: {new_username}",
-                reply_markup=builder.as_markup()
-            )
-        else:
-            await message.answer("❌ خطا در تغییر نام کاربری. لطفاً دوباره تلاش کنید.")
-    
-    await state.clear()
-
-# ---------- ادامه توابع موجود ----------
-
-# تعیین قهرمان برای لیگ - دریافت آیدی بازی (هر چیزی)
-@dp.callback_query(F.data.startswith("set_champion_"))
-async def set_champion_start(callback: types.CallbackQuery, state: FSMContext):
-    await callback.answer()
-    
-    league_id = int(callback.data.split('_')[2])
-    league = db.get_league(league_id)
-    
-    if not league:
-        await callback.message.edit_text("⚠️ لیگ پیدا نشد!")
-        return
-    
-    # ذخیره اطلاعات لیگ
-    await state.update_data(champion_league_id=league_id, champion_league_name=league[1])
-    
-    await callback.message.edit_text(
-        f"👑 تعیین قهرمان برای لیگ: {league[1]}\n\n"
-        f"لطفاً **آیدی بازی** قهرمان را وارد کنید (هر چیزی می‌تواند باشد):"
-    )
-    
-    await state.set_state(AdminStates.waiting_champion_game_id)
-
-# ویرایش قهرمان - دریافت آیدی بازی جدید
-@dp.callback_query(F.data.startswith("edit_champion_"))
-async def edit_champion_start(callback: types.CallbackQuery, state: FSMContext):
-    await callback.answer()
-    
-    league_id = int(callback.data.split('_')[2])
-    league = db.get_league(league_id)
-    
-    if not league:
-        await callback.message.edit_text("⚠️ لیگ پیدا نشد!")
-        return
-    
-    # دریافت قهرمان فعلی
-    champion = db.get_champion(league_id)
-    if not champion:
-        await callback.message.edit_text("⚠️ این لیگ قهرمان ندارد!")
-        return
-    
-    champ_game_id, champ_display, set_at, league_name = champion
-    
-    # ذخیره اطلاعات
-    await state.update_data(
-        champion_league_id=league_id,
-        champion_league_name=league[1],
-        existing_game_id=champ_game_id,
-        existing_display=champ_display
-    )
-    
-    await callback.message.edit_text(
-        f"✏️ ویرایش قهرمان لیگ: {league[1]}\n\n"
-        f"قهرمان فعلی: {champ_game_id} ({champ_display})\n\n"
-        f"لطفاً **آیدی بازی جدید** را وارد کنید (هر چیزی می‌تواند باشد):"
-    )
-    
-    await state.set_state(AdminStates.waiting_champion_game_id)
-
-# دریافت آیدی بازی قهرمان (هر چیزی می‌تواند باشد)
-@dp.message(AdminStates.waiting_champion_game_id)
-async def get_champion_game_id(message: types.Message, state: FSMContext):
-    game_id = message.text.strip()
-    
-    if not game_id:
-        await message.answer("❌ آیدی بازی نمی‌تواند خالی باشد. لطفاً دوباره وارد کنید:")
-        return
-    
-    await state.update_data(champion_game_id=game_id)
-    
-    data = await state.get_data()
-    league_name = data.get('champion_league_name', 'لیگ')
-    
-    await message.answer(
-        f"👑 قهرمان {league_name}\n\n"
-        f"آیدی بازی: {game_id}\n\n"
-        f"لطفاً نام نمایشی قهرمان را وارد کنید (مثلاً 'amir'):"
-    )
-    
-    await state.set_state(AdminStates.waiting_champion_display_name)
-
-# دریافت نام نمایشی و ذخیره قهرمان
-@dp.message(AdminStates.waiting_champion_display_name)
-async def get_champion_display_name(message: types.Message, state: FSMContext):
-    display_name = message.text.strip()
-    
-    if not display_name:
-        await message.answer("❌ نام نمایشی نمی‌تواند خالی باشد. لطفاً دوباره وارد کنید:")
-        return
-    
-    data = await state.get_data()
-    league_id = data.get('champion_league_id')
-    league_name = data.get('champion_league_name')
-    game_id = data.get('champion_game_id')
-    is_edit = 'existing_game_id' in data
-    
-    if not league_id or not game_id:
-        await message.answer("❌ خطایی رخ داده است. لطفاً دوباره شروع کنید.")
-        await state.clear()
-        return
-    
-    # ذخیره قهرمان در دیتابیس (با آیدی بازی)
-    success = db.set_champion(league_id, game_id, display_name, message.from_user.id)
-    
-    if success:
-        action = "ویرایش" if is_edit else "ثبت"
-        
-        # ایجاد اینلاین کیبورد همیشگی برای بازگشت
-        builder = InlineKeyboardBuilder()
-        builder.button(text="📋 لیست لیگ‌ها", callback_data="list_leagues_persistent")
-        builder.button(text="🏆 تالار افتخارات", callback_data="hall_of_fame_persistent")
-        builder.button(text="➕ ایجاد لیگ", callback_data="create_league_persistent")
-        builder.adjust(2, 1)
-        
-        await message.answer(
-            f"✅ {action} قهرمان با موفقیت انجام شد!\n\n"
-            f"🏆 لیگ: {league_name}\n"
-            f"👑 قهرمان: {game_id} ({display_name})\n\n"
-            f"اکنون در تالار افتخارات نمایش داده می‌شود.",
-            reply_markup=builder.as_markup()
-        )
-    else:
-        await message.answer("❌ خطا در ذخیره قهرمان. لطفاً دوباره تلاش کنید.")
-    
-    await state.clear()
-
-# اینلاین کیبورد همیشگی - بازگشت به منو
-@dp.callback_query(F.data == "back_to_admin_menu_persistent")
-async def back_to_admin_menu_persistent(callback: types.CallbackQuery):
-    await callback.answer()
-    await callback.message.edit_text(
-        "👨‍💼 منوی اصلی مدیریت\n\nاز دکمه‌های زیر استفاده کنید:",
-        reply_markup=get_persistent_inline_keyboard()
-    )
-
-# تغییر وضعیت لیگ
 @dp.callback_query(F.data.startswith("toggle_"))
 async def toggle_league(callback: types.CallbackQuery):
     await callback.answer()
@@ -871,7 +430,6 @@ async def toggle_league(callback: types.CallbackQuery):
     else:
         await callback.message.edit_text("⚠️ خطا در تغییر وضعیت لیگ!")
 
-# حذف لیگ - تایید اولیه
 @dp.callback_query(F.data.startswith("delete_league_"))
 async def delete_league_confirmation(callback: types.CallbackQuery):
     await callback.answer()
@@ -900,7 +458,6 @@ async def delete_league_confirmation(callback: types.CallbackQuery):
         reply_markup=builder.as_markup()
     )
 
-# حذف نهایی لیگ
 @dp.callback_query(F.data.startswith("confirm_delete_"))
 async def delete_league_final(callback: types.CallbackQuery):
     await callback.answer()
@@ -939,25 +496,491 @@ async def delete_league_final(callback: types.CallbackQuery):
         logger.error(f"خطا در حذف لیگ: {e}")
         await callback.message.edit_text(f"❌ خطا در حذف لیگ: {str(e)}")
 
-# به‌روزرسانی تالار افتخارات
+# ---------- مدیریت کاربران ----------
+
+@dp.callback_query(F.data.startswith("view_users_"))
+async def view_users(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    
+    league_id = int(callback.data.split('_')[2])
+    league = db.get_league(league_id)
+    
+    if not league:
+        await callback.message.edit_text("⚠️ لیگ پیدا نشد!")
+        return
+    
+    await state.update_data(current_league_id=league_id)
+    
+    users = db.get_league_users(league_id)
+    
+    if not users:
+        users_text = "هیچ کاربری ثبت‌نام نکرده است."
+        builder = InlineKeyboardBuilder()
+        builder.button(text="➕ افزودن کاربر", callback_data=f"add_user_{league_id}")
+        builder.button(text="🔙 بازگشت", callback_data=f"admin_league_{league_id}")
+        builder.adjust(2)
+    else:
+        users_text = "\n".join([f"{i+1}. {username if username else f'آیدی: {user_id}'}" 
+                               for i, (user_id, username) in enumerate(users)])
+        
+        # ایجاد اینلاین کیبورد با قابلیت انتخاب کاربر برای ویرایش
+        builder = InlineKeyboardBuilder()
+        
+        # دکمه‌های ویرایش برای هر کاربر
+        for user_id, username in users:
+            display_name = username if username else str(user_id)
+            if len(display_name) > 20:
+                display_name = display_name[:20] + "..."
+            builder.button(text=f"✏️ {display_name}", callback_data=f"edit_user_{league_id}_{user_id}")
+        
+        builder.button(text="➕ افزودن کاربر", callback_data=f"add_user_{league_id}")
+        builder.button(text="🔙 بازگشت به مدیریت", callback_data=f"admin_league_{league_id}")
+        builder.button(text="📋 لیست لیگ‌ها", callback_data="list_leagues_persistent")
+        
+        # تنظیم چیدمان
+        if len(users) <= 5:
+            builder.adjust(1, 2, 1)
+        else:
+            builder.adjust(2, 2, 1)
+    
+    await callback.message.edit_text(
+        f"👥 کاربران لیگ '{league[1]}':\n\n"
+        f"{users_text}\n\n"
+        f"برای ویرایش یا حذف روی کاربر مورد نظر کلیک کنید:",
+        reply_markup=builder.as_markup()
+    )
+
+@dp.callback_query(F.data.startswith("edit_user_"))
+async def edit_user_options(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    
+    parts = callback.data.split('_')
+    if len(parts) < 4:
+        await callback.message.edit_text("⚠️ خطا در شناسایی کاربر!")
+        return
+    
+    league_id = int(parts[2])
+    user_id = parts[3]  # اینجا int نمی‌کنیم چون می‌تواند رشته باشد
+    
+    # دریافت اطلاعات کاربر
+    user_info = db.get_user_info(league_id, user_id)
+    if not user_info:
+        await callback.message.edit_text("⚠️ کاربر پیدا نشد!")
+        return
+    
+    await state.update_data(
+        editing_league_id=league_id,
+        editing_user_id=user_id,
+        editing_username=user_info[1]
+    )
+    
+    # دریافت اطلاعات لیگ
+    league = db.get_league(league_id)
+    league_name = league[1] if league else "لیگ"
+    
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✏️ تغییر نام کاربری", callback_data=f"change_username_{league_id}_{user_id}")
+    builder.button(text="🗑️ حذف کاربر از لیگ", callback_data=f"delete_user_{league_id}_{user_id}")
+    builder.button(text="🔙 بازگشت به لیست کاربران", callback_data=f"view_users_{league_id}")
+    builder.adjust(2, 1)
+    
+    await callback.message.edit_text(
+        f"⚙️ مدیریت کاربر:\n\n"
+        f"🏆 لیگ: {league_name}\n"
+        f"👤 آیدی کاربر: {user_id}\n"
+        f"📛 نام کاربری: {user_info[1] if user_info[1] else 'ندارد'}\n\n"
+        f"عملیات مورد نظر را انتخاب کنید:",
+        reply_markup=builder.as_markup()
+    )
+
+@dp.callback_query(F.data.startswith("change_username_"))
+async def change_username_start(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    
+    parts = callback.data.split('_')
+    if len(parts) < 4:
+        await callback.message.edit_text("⚠️ خطا در شناسایی کاربر!")
+        return
+    
+    league_id = int(parts[2])
+    user_id = parts[3]  # اینجا int نمی‌کنیم
+    
+    user_info = db.get_user_info(league_id, user_id)
+    if not user_info:
+        await callback.message.edit_text("⚠️ کاربر پیدا نشد!")
+        return
+    
+    await state.update_data(
+        changing_username_league_id=league_id,
+        changing_username_user_id=user_id,
+        current_username=user_info[1]
+    )
+    
+    await callback.message.edit_text(
+        f"✏️ تغییر نام کاربری\n\n"
+        f"آیدی کاربر: {user_id}\n"
+        f"نام فعلی: {user_info[1] if user_info[1] else 'ندارد'}\n\n"
+        f"لطفاً نام کاربری جدید را وارد کنید:",
+        reply_markup=None
+    )
+    
+    await state.set_state(AdminStates.waiting_new_username)
+
+@dp.callback_query(F.data.startswith("delete_user_"))
+async def delete_user_confirmation(callback: types.CallbackQuery):
+    await callback.answer()
+    
+    parts = callback.data.split('_')
+    if len(parts) < 4:
+        await callback.message.edit_text("⚠️ خطا در شناسایی کاربر!")
+        return
+    
+    league_id = int(parts[2])
+    user_id = parts[3]  # اینجا int نمی‌کنیم
+    
+    user_info = db.get_user_info(league_id, user_id)
+    if not user_info:
+        await callback.message.edit_text("⚠️ کاربر پیدا نشد!")
+        return
+    
+    league = db.get_league(league_id)
+    league_name = league[1] if league else "لیگ"
+    
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ بله، حذف کن", callback_data=f"confirm_delete_user_{league_id}_{user_id}")
+    builder.button(text="❌ خیر، انصراف", callback_data=f"edit_user_{league_id}_{user_id}")
+    builder.adjust(2)
+    
+    await callback.message.edit_text(
+        f"⚠️ آیا مطمئن هستید می‌خواهید این کاربر را از لیگ حذف کنید؟\n\n"
+        f"🏆 لیگ: {league_name}\n"
+        f"👤 آیدی کاربر: {user_id}\n"
+        f"📛 نام کاربری: {user_info[1] if user_info[1] else 'ندارد'}\n\n"
+        f"❌ این عمل قابل بازگشت نیست!",
+        reply_markup=builder.as_markup()
+    )
+
+@dp.callback_query(F.data.startswith("confirm_delete_user_"))
+async def delete_user_final(callback: types.CallbackQuery):
+    await callback.answer()
+    
+    parts = callback.data.split('_')
+    if len(parts) < 4:
+        await callback.message.edit_text("⚠️ خطا در شناسایی کاربر!")
+        return
+    
+    league_id = int(parts[2])
+    user_id = parts[3]  # اینجا int نمی‌کنیم
+    
+    user_info = db.get_user_info(league_id, user_id)
+    if not user_info:
+        await callback.message.edit_text("⚠️ کاربر پیدا نشد!")
+        return
+    
+    league = db.get_league(league_id)
+    league_name = league[1] if league else "لیگ"
+    
+    # حذف کاربر از لیگ
+    success = db.remove_user_from_league(league_id, user_id)
+    
+    if success:
+        builder = InlineKeyboardBuilder()
+        builder.button(text="🔙 بازگشت به لیست کاربران", callback_data=f"view_users_{league_id}")
+        builder.button(text="🏆 مدیریت لیگ", callback_data=f"admin_league_{league_id}")
+        builder.adjust(1)
+        
+        await callback.message.edit_text(
+            f"✅ کاربر با موفقیت از لیگ حذف شد!\n\n"
+            f"🏆 لیگ: {league_name}\n"
+            f"👤 آیدی کاربر: {user_id}\n"
+            f"📛 نام کاربری: {user_info[1] if user_info[1] else 'ندارد'}",
+            reply_markup=builder.as_markup()
+        )
+    else:
+        await callback.message.edit_text("❌ خطا در حذف کاربر!")
+
+@dp.callback_query(F.data.startswith("add_user_"))
+async def add_user_start(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    
+    league_id = int(callback.data.split('_')[2])
+    league = db.get_league(league_id)
+    
+    if not league:
+        await callback.message.edit_text("⚠️ لیگ پیدا نشد!")
+        return
+    
+    # بررسی ظرفیت
+    user_count = db.get_league_user_count(league_id)
+    if user_count >= league[2]:
+        await callback.answer("⚠️ ظرفیت لیگ تکمیل است!", show_alert=True)
+        return
+    
+    await state.update_data(
+        adding_user_league_id=league_id,
+        adding_user_league_name=league[1]
+    )
+    
+    await callback.message.edit_text(
+        f"➕ افزودن کاربر جدید به لیگ: {league[1]}\n\n"
+        f"⚠️ توجه: کاربر می‌تواند در لیگ‌های مختلف ثبت‌نام کند.\n\n"
+        f"لطفاً آیدی کاربر را وارد کنید (می‌تواند هر چیزی باشد):",
+        reply_markup=None
+    )
+    
+    await state.set_state(AdminStates.waiting_user_action)
+
+@dp.message(AdminStates.waiting_user_action)
+async def get_user_id_for_add(message: types.Message, state: FSMContext):
+    user_id = message.text.strip()
+    
+    if not user_id:
+        await message.answer("❌ آیدی کاربر نمی‌تواند خالی باشد. لطفاً دوباره وارد کنید:")
+        return
+    
+    data = await state.get_data()
+    league_id = data.get('adding_user_league_id')
+    league_name = data.get('adding_user_league_name')
+    
+    # بررسی آیا کاربر قبلاً در این لیگ ثبت‌نام کرده
+    if db.is_user_in_league(user_id, league_id):
+        await message.answer(
+            f"⚠️ این کاربر قبلاً در این لیگ ثبت‌نام کرده است!\n\n"
+            f"لطفاً آیدی کاربر دیگری را وارد کنید:"
+        )
+        return
+    
+    await state.update_data(adding_user_user_id=user_id)
+    await message.answer(
+        f"👤 آیدی کاربر: {user_id}\n"
+        f"🏆 لیگ: {league_name}\n\n"
+        f"لطفاً نام کاربری را وارد کنید (می‌تواند خالی باشد):"
+    )
+    
+    await state.set_state(AdminStates.waiting_new_username)
+
+@dp.message(AdminStates.waiting_new_username)
+async def save_new_username(message: types.Message, state: FSMContext):
+    new_username = message.text.strip()
+    
+    data = await state.get_data()
+    
+    # بررسی اینکه آیا در حال افزودن کاربر جدید هستیم یا تغییر نام کاربری
+    if 'adding_user_user_id' in data:
+        # حالت افزودن کاربر جدید
+        league_id = data.get('adding_user_league_id')
+        user_id = data.get('adding_user_user_id')
+        league_name = data.get('adding_user_league_name')
+        
+        # ذخیره کاربر در دیتابیس
+        success = db.add_user_to_league(user_id, new_username, league_id)
+        
+        if success:
+            builder = InlineKeyboardBuilder()
+            builder.button(text="🔙 بازگشت به لیست کاربران", callback_data=f"view_users_{league_id}")
+            builder.button(text="➕ افزودن کاربر دیگر", callback_data=f"add_user_{league_id}")
+            builder.adjust(1)
+            
+            await message.answer(
+                f"✅ کاربر با موفقیت به لیگ اضافه شد!\n\n"
+                f"🏆 لیگ: {league_name}\n"
+                f"👤 آیدی کاربر: {user_id}\n"
+                f"📛 نام کاربری: {new_username if new_username else 'ندارد'}",
+                reply_markup=builder.as_markup()
+            )
+        else:
+            await message.answer("❌ خطا در اضافه کردن کاربر. لطفاً دوباره تلاش کنید.")
+    
+    else:
+        # حالت تغییر نام کاربری
+        league_id = data.get('changing_username_league_id')
+        user_id = data.get('changing_username_user_id')
+        
+        if not league_id or not user_id:
+            await message.answer("❌ خطایی رخ داده است. لطفاً دوباره شروع کنید.")
+            await state.clear()
+            return
+        
+        success = db.update_user_username(league_id, user_id, new_username)
+        
+        if success:
+            league = db.get_league(league_id)
+            league_name = league[1] if league else "لیگ"
+            
+            builder = InlineKeyboardBuilder()
+            builder.button(text="🔙 بازگشت به لیست کاربران", callback_data=f"view_users_{league_id}")
+            builder.button(text="🏆 مدیریت لیگ", callback_data=f"admin_league_{league_id}")
+            builder.adjust(1)
+            
+            await message.answer(
+                f"✅ نام کاربری با موفقیت تغییر یافت!\n\n"
+                f"🏆 لیگ: {league_name}\n"
+                f"👤 آیدی کاربر: {user_id}\n"
+                f"📛 نام جدید: {new_username}",
+                reply_markup=builder.as_markup()
+            )
+        else:
+            await message.answer("❌ خطا در تغییر نام کاربری. لطفاً دوباره تلاش کنید.")
+    
+    await state.clear()
+
+# ---------- مدیریت قهرمانان ----------
+
+@dp.callback_query(F.data.startswith("set_champion_"))
+async def set_champion_start(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    
+    league_id = int(callback.data.split('_')[2])
+    league = db.get_league(league_id)
+    
+    if not league:
+        await callback.message.edit_text("⚠️ لیگ پیدا نشد!")
+        return
+    
+    # ذخیره اطلاعات لیگ
+    await state.update_data(champion_league_id=league_id, champion_league_name=league[1])
+    
+    await callback.message.edit_text(
+        f"👑 تعیین قهرمان برای لیگ: {league[1]}\n\n"
+        f"لطفاً **آیدی بازی** قهرمان را وارد کنید (هر چیزی می‌تواند باشد):"
+    )
+    
+    await state.set_state(AdminStates.waiting_champion_game_id)
+
+@dp.callback_query(F.data.startswith("edit_champion_"))
+async def edit_champion_start(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    
+    league_id = int(callback.data.split('_')[2])
+    league = db.get_league(league_id)
+    
+    if not league:
+        await callback.message.edit_text("⚠️ لیگ پیدا نشد!")
+        return
+    
+    # دریافت قهرمان فعلی
+    champion = db.get_champion(league_id)
+    if not champion:
+        await callback.message.edit_text("⚠️ این لیگ قهرمان ندارد!")
+        return
+    
+    champ_game_id, champ_display, set_at, league_name = champion
+    
+    # ذخیره اطلاعات
+    await state.update_data(
+        champion_league_id=league_id,
+        champion_league_name=league[1],
+        existing_game_id=champ_game_id,
+        existing_display=champ_display
+    )
+    
+    await callback.message.edit_text(
+        f"✏️ ویرایش قهرمان لیگ: {league[1]}\n\n"
+        f"قهرمان فعلی: {champ_game_id} ({champ_display})\n\n"
+        f"لطفاً **آیدی بازی جدید** را وارد کنید (هر چیزی می‌تواند باشد):"
+    )
+    
+    await state.set_state(AdminStates.waiting_champion_game_id)
+
+@dp.message(AdminStates.waiting_champion_game_id)
+async def get_champion_game_id(message: types.Message, state: FSMContext):
+    game_id = message.text.strip()
+    
+    if not game_id:
+        await message.answer("❌ آیدی بازی نمی‌تواند خالی باشد. لطفاً دوباره وارد کنید:")
+        return
+    
+    await state.update_data(champion_game_id=game_id)
+    
+    data = await state.get_data()
+    league_name = data.get('champion_league_name', 'لیگ')
+    
+    await message.answer(
+        f"👑 قهرمان {league_name}\n\n"
+        f"آیدی بازی: {game_id}\n\n"
+        f"لطفاً نام نمایشی قهرمان را وارد کنید (مثلاً 'amir'):"
+    )
+    
+    await state.set_state(AdminStates.waiting_champion_display_name)
+
+@dp.message(AdminStates.waiting_champion_display_name)
+async def get_champion_display_name(message: types.Message, state: FSMContext):
+    display_name = message.text.strip()
+    
+    if not display_name:
+        await message.answer("❌ نام نمایشی نمی‌تواند خالی باشد. لطفاً دوباره وارد کنید:")
+        return
+    
+    data = await state.get_data()
+    league_id = data.get('champion_league_id')
+    league_name = data.get('champion_league_name')
+    game_id = data.get('champion_game_id')
+    is_edit = 'existing_game_id' in data
+    
+    if not league_id or not game_id:
+        await message.answer("❌ خطایی رخ داده است. لطفاً دوباره شروع کنید.")
+        await state.clear()
+        return
+    
+    # ذخیره قهرمان در دیتابیس (با آیدی بازی)
+    success = db.set_champion(league_id, game_id, display_name, message.from_user.id)
+    
+    if success:
+        action = "ویرایش" if is_edit else "ثبت"
+        
+        # ایجاد اینلاین کیبورد همیشگی برای بازگشت
+        builder = InlineKeyboardBuilder()
+        builder.button(text="📋 لیست لیگ‌ها", callback_data="list_leagues_persistent")
+        builder.button(text="🏆 تالار افتخارات", callback_data="hall_of_fame_persistent")
+        builder.button(text="➕ ایجاد لیگ", callback_data="create_league_persistent")
+        builder.adjust(2, 1)
+        
+        await message.answer(
+            f"✅ {action} قهرمان با موفقیت انجام شد!\n\n"
+            f"🏆 لیگ: {league_name}\n"
+            f"👑 قهرمان: {game_id} ({display_name})\n\n"
+            f"اکنون در تالار افتخارات نمایش داده می‌شود.",
+            reply_markup=builder.as_markup()
+        )
+    else:
+        await message.answer("❌ خطا در ذخیره قهرمان. لطفاً دوباره تلاش کنید.")
+    
+    await state.clear()
+
+@dp.callback_query(F.data.startswith("remove_champion_"))
+async def remove_champion_handler(callback: types.CallbackQuery):
+    await callback.answer()
+    
+    league_id = int(callback.data.split('_')[2])
+    league = db.get_league(league_id)
+    
+    if not league:
+        await callback.message.edit_text("⚠️ لیگ پیدا نشد!")
+        return
+    
+    # حذف قهرمان
+    success = db.remove_champion(league_id)
+    
+    if success:
+        builder = InlineKeyboardBuilder()
+        builder.button(text="🏆 مدیریت لیگ", callback_data=f"admin_league_{league_id}")
+        builder.button(text="📋 لیست لیگ‌ها", callback_data="list_leagues_persistent")
+        builder.adjust(1)
+        
+        await callback.message.edit_text(
+            f"✅ قهرمان لیگ '{league[1]}' با موفقیت حذف شد!",
+            reply_markup=builder.as_markup()
+        )
+    else:
+        await callback.message.edit_text("❌ خطا در حذف قهرمان!")
+
+# ---------- سایر توابع ----------
+
 @dp.callback_query(F.data == "refresh_hall_of_fame")
 async def refresh_hall_of_fame(callback: types.CallbackQuery):
     await callback.answer()
     await show_hall_of_fame(callback, include_persistent_keyboard=True)
 
-# نمایش تالار افتخارات از اینلاین
-@dp.callback_query(F.data == "hall_of_fame")
-async def hall_of_fame_callback(callback: types.CallbackQuery):
-    await callback.answer()
-    await show_hall_of_fame(callback, include_persistent_keyboard=True)
-
-# بازگشت به لیست لیگ‌ها
-@dp.callback_query(F.data == "list_leagues_callback")
-async def list_leagues_callback(callback: types.CallbackQuery):
-    await callback.answer()
-    await list_leagues_handler(callback, include_persistent_keyboard=True)
-
-# اضافه کردن قهرمان جدید از تالار افتخارات
 @dp.callback_query(F.data == "add_new_champion")
 async def add_new_champion_from_hall(callback: types.CallbackQuery):
     await callback.answer()
@@ -993,7 +1016,8 @@ async def add_new_champion_from_hall(callback: types.CallbackQuery):
         reply_markup=builder.as_markup()
     )
 
-# دکمه "➕ ایجاد لیگ" از Reply Keyboard
+# ---------- Reply Keyboard Handlers ----------
+
 @dp.message(F.text == "➕ ایجاد لیگ")
 async def create_league_button(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
@@ -1004,7 +1028,6 @@ async def create_league_button(message: types.Message, state: FSMContext):
     await message.answer("📝 لطفاً نام لیگ جدید را وارد کنید:")
     await state.set_state(AdminStates.waiting_league_name)
 
-# دکمه "📊 آمار کلی" از Reply Keyboard
 @dp.message(F.text == "📊 آمار کلی")
 async def show_stats(message: types.Message):
     user_id = message.from_user.id
@@ -1054,7 +1077,26 @@ async def show_stats(message: types.Message):
         reply_markup=builder.as_markup()
     )
 
-# دریافت نام لیگ
+@dp.message(F.text == "📋 لیست لیگ‌ها")
+async def list_leagues_button(message: types.Message):
+    user_id = message.from_user.id
+    if user_id not in admin_sessions:
+        await message.answer("❌ دسترسی ندارید. ابتدا /start را بزنید.")
+        return
+    
+    await list_leagues_handler(message, include_persistent_keyboard=True)
+
+@dp.message(F.text == "🏆 تالار افتخارات")
+async def hall_of_fame_button(message: types.Message):
+    user_id = message.from_user.id
+    if user_id not in admin_sessions:
+        await message.answer("❌ دسترسی ندارید. ابتدا /start را بزنید.")
+        return
+    
+    await show_hall_of_fame(message, include_persistent_keyboard=True)
+
+# ---------- توابع ایجاد لیگ ----------
+
 @dp.message(AdminStates.waiting_league_name)
 async def get_league_name(message: types.Message, state: FSMContext):
     league_name = message.text.strip()
@@ -1062,7 +1104,6 @@ async def get_league_name(message: types.Message, state: FSMContext):
     await message.answer("🔢 لطفاً ظرفیت لیگ را وارد کنید (عدد):")
     await state.set_state(AdminStates.waiting_league_capacity)
 
-# دریافت ظرفیت و ایجاد لیگ
 @dp.message(AdminStates.waiting_league_capacity)
 async def get_league_capacity(message: types.Message, state: FSMContext):
     try:
@@ -1095,7 +1136,7 @@ async def get_league_capacity(message: types.Message, state: FSMContext):
     except ValueError:
         await message.answer("⚠️ لطفاً یک عدد صحیح و مثبت وارد کنید:")
 
-# تابع لغو
+# ---------- تابع لغو ----------
 @dp.message(Command("cancel"))
 async def cancel_command(message: types.Message, state: FSMContext):
     await state.clear()
@@ -1114,9 +1155,10 @@ async def main():
     print("🤖 ربات ادمین با aiogram در حال راه‌اندازی...")
     print("✅ اینلاین کیبورد همیشگی فعال شد")
     print("✅ تالار افتخارات با آیدی بازی (هر چیزی) اضافه شد")
-    print("✅ قابلیت ویرایش لیست کاربران اضافه شد")
     print("✅ کاربران می‌توانند در لیگ‌های مختلف ثبت‌نام کنند")
     print("✅ فقط اجازه ثبت‌نام مجدد در همان لیگ داده نمی‌شود")
+    print("✅ user_id می‌تواند هر نوع داده‌ای باشد")
+    print("✅ رفع باگ حذف کاربر از لیگ")
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
